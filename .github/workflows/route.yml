@@ -12,7 +12,7 @@ on:
         type: string
         default: auto
     secrets:
-      usage-token:
+      usage_token:
         description: A token that reads the Actions runs of every repository of the organisation.
         required: false
     outputs:
@@ -43,6 +43,6 @@ jobs:
       - id: pick
         run: .github/scripts/route.sh
         env:
-          GH_TOKEN: ${{ secrets.usage-token }}
+          GH_TOKEN: ${{ secrets.usage_token }}
           ORG: ${{ github.repository_owner }}
           PROVIDER: ${{ inputs.provider }}

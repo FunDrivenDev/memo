@@ -25,7 +25,7 @@ jobs:
     permissions:
       contents: read
     secrets:
-      usage-token: ${{ secrets.USAGE_TOKEN }}
+      usage_token: ${{ secrets.USAGE_TOKEN }}
 
   check:
     needs: route

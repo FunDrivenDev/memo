@@ -51,7 +51,7 @@ jobs:
     with:
       provider: ${{ inputs.provider }}
     secrets:
-      usage-token: ${{ secrets.USAGE_TOKEN }}
+      usage_token: ${{ secrets.USAGE_TOKEN }}
 
   build:
     needs: [preflight, route]
