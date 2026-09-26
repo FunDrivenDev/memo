@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   route:
-    uses: $/.github/workflows/route.yml
+    uses: ./.github/workflows/route.yml
     permissions:
       contents: read
     secrets:

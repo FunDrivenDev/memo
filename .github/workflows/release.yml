@@ -45,7 +45,7 @@ jobs:
           VERSION: ${{ inputs.version }}
 
   route:
-    uses: $/.github/workflows/route.yml
+    uses: ./.github/workflows/route.yml
     permissions:
       contents: read
     with:
@@ -107,7 +107,7 @@ jobs:
   # A release made with the workflow token starts no workflow, so publish from here.
   publish:
     needs: build
-    uses: $/.github/workflows/publish.yml
+    uses: ./.github/workflows/publish.yml
     permissions:
       contents: read
     with:
