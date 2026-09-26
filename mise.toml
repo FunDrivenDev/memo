@@ -1,0 +1,16 @@
+# Every tool needed to develop or build memo, pinned.
+# Run them through the Justfile, never directly.
+
+[tools]
+rust = { version = "1.98.1", components = "rustfmt,clippy" }
+deno = "2.9.7"
+just = "1.58.0"
+taplo = "0.10.0"
+rumdl = "0.2.77"
+typos = "1.50.2"
+cargo-binstall = "1.23.0"
+"cargo:cargo-nextest" = "0.9.146"
+
+[settings]
+# Install cargo tools from their prebuilt binaries rather than compiling them.
+cargo.binstall = true
