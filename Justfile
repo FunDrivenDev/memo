@@ -32,12 +32,12 @@ fmt:
     rumdl fmt --quiet .
     just --fmt --unstable
 
-# Lint everything; `family` narrows it to rust, web, toml, markdown, just or spelling.
+# Lint everything; `family` narrows it to rust, web, toml, markdown, just, workflows or spelling.
 lint family="":
     #!/usr/bin/env bash
     set -euo pipefail
     want() { [[ -z "{{ family }}" || "{{ family }}" == "$1" ]]; }
-    case "{{ family }}" in ""|rust|web|toml|markdown|just|spelling) ;; *) echo "unknown family {{ family }}" >&2; exit 2 ;; esac
+    case "{{ family }}" in ""|rust|web|toml|markdown|just|workflows|spelling) ;; *) echo "unknown family {{ family }}" >&2; exit 2 ;; esac
     if want rust; then
         cargo fmt --manifest-path {{ manifest }} --check
         cargo clippy --manifest-path {{ manifest }} --all-targets --locked -- -D warnings
@@ -53,6 +53,7 @@ lint family="":
     fi
     if want markdown; then rumdl check --quiet .; fi
     if want just; then just --fmt --unstable --check; fi
+    if want workflows; then actionlint; shellcheck .github/scripts/*.sh; fi
     if want spelling; then typos; fi
 
 # Run the Rust tests.
@@ -66,9 +67,9 @@ check: lint test
 dev:
     deno task tauri dev
 
-# Build the release app bundle.
+# Build the release app bundle, with home directory paths trimmed to `~` in the binary.
 build:
-    deno task tauri build --bundles app
+    RUSTFLAGS="--remap-path-prefix=$HOME=~" deno task tauri build --bundles app
     @du -sh {{ app }} | sed 's/\t/  /'
 
 # Install the release app in ~/Applications and open it.
@@ -83,13 +84,42 @@ ci: check
     deno task tauri build --no-bundle
     CC_aarch64_apple_darwin=clang cargo clippy --manifest-path {{ manifest }} --target aarch64-apple-darwin --all-targets --locked -- -D warnings
 
-# Publish `version` from the pushed main once CI passed on it: set it, tag it `v<version>`, and attach the zipped app to a GitHub release, which the Publish workflow pushes to the Homebrew tap.
+# Audit security: secrets or personal data anywhere in the history, vulnerable or unknown-source dependencies, unsafe workflows.
+audit:
+    gitleaks git --config .gitleaks.toml --redact --no-banner --log-level warn .
+    cargo deny --manifest-path {{ manifest }} --config deny.toml check advisories sources
+    deno audit
+    zizmor --quiet .
+
+# Refuse an app bundle that carries a secret or a home directory path, before it goes public.
+scan-app path=app:
+    gitleaks dir --config .gitleaks.toml --redact --no-banner --log-level warn "{{ path }}"
+    strings -a -n 6 "{{ path }}/Contents/MacOS/memo" | gitleaks stdin --config .gitleaks.toml --redact --no-banner --log-level warn
+
+# Set `version` in Cargo.toml and its lockfile.
+set-version version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "{{ version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "{{ version }} is not a semantic version" >&2; exit 2; }
+    perl -0pi -e 's/(\[package\]\nname = "memo"\nversion = )"[^"]*"/$1"{{ version }}"/' {{ manifest }}
+    cargo update --manifest-path {{ manifest }} --workspace --quiet
+
+# Scan the release bundle, then zip it as src-tauri/target/dist/memo-<version>-macos-arm64.zip and print that path.
+package version: scan-app
+    #!/usr/bin/env bash
+    set -euo pipefail
+    archive="src-tauri/target/dist/memo-{{ version }}-macos-arm64.zip"
+    mkdir -p "$(dirname "$archive")"
+    rm -f "$archive"
+    ditto -c -k --keepParent {{ app }} "$archive"
+    echo "$archive"
+
+# Fallback for when the Release workflow cannot run: publish `version` from this Mac, once CI passed on the pushed main. The app is built in a temporary worktree, so no path in it names you.
 publish version:
     #!/usr/bin/env bash
     set -euo pipefail
     version="{{ version }}"
     tag="v$version"
-    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "$version is not a semantic version" >&2; exit 2; }
     [[ "$(git branch --show-current)" == main ]] || { echo "publish from main" >&2; exit 1; }
     [[ -z "$(git status --porcelain)" ]] || { echo "commit or stash the changes first" >&2; exit 1; }
     git fetch --quiet --tags origin main
@@ -97,20 +127,16 @@ publish version:
     if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then echo "$tag already exists" >&2; exit 1; fi
     ci=$(gh run list --commit "$(git rev-parse HEAD)" --workflow CI --json status,conclusion --jq '.[0] | "\(.status) \(.conclusion)"')
     [[ "$ci" == "completed success" ]] || { echo "CI has not passed on HEAD (${ci:-no run}): wait for it or fix it" >&2; exit 1; }
-    if [[ "$(taplo get -f {{ manifest }} package.version)" != "$version" ]]; then
-        perl -0pi -e 's/(\[package\]\nname = "memo"\nversion = )"[^"]*"/$1"'"$version"'"/' {{ manifest }}
-        cargo update --manifest-path {{ manifest }} --workspace --quiet
-        git commit --quiet -m "Publish $version" {{ manifest }} src-tauri/Cargo.lock
-    fi
+    just set-version "$version"
+    git diff --quiet || git commit --quiet -m "Publish $version" {{ manifest }} src-tauri/Cargo.lock
+    tree=$(mktemp -d)
+    trap 'git worktree remove --force "$tree"' EXIT
+    git worktree add --quiet --detach "$tree" HEAD
+    (cd "$tree" && mise trust --quiet && just deps frozen && just build)
+    archive=$(cd "$tree" && just package "$version")
     git tag -a "$tag" -m "memo $version"
     git push --quiet origin main "$tag"
-    just build
-    dist=src-tauri/target/dist
-    archive="$dist/memo-$version-macos-arm64.zip"
-    mkdir -p "$dist"
-    rm -f "$archive"
-    ditto -c -k --keepParent {{ app }} "$archive"
-    gh release create "$tag" --title "memo $version" --generate-notes "$archive"
+    gh release create "$tag" --title "memo $version" --generate-notes "$tree/$archive"
 
 # Print the size of the release binary and bundle, and of the front end.
 size:

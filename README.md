@@ -46,7 +46,9 @@ Every search word must match fuzzily, in the title or on one line; as in fzf, `'
 brew install rlvdx/tap/memo
 ```
 
-`just publish <version>` releases from a Mac: once CI has passed on the pushed `main`, it sets the version, tags it, builds the app and attaches it to a GitHub release. The Publish workflow then copies the app to the public [rlvdx/homebrew-tap](https://github.com/rlvdx/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The sources stay private.
+Releases come from the Release workflow, started from the Actions tab or with `gh workflow run release -f version=0.2.0`. Once CI has passed on `main`, it builds the app on macOS, scans it for secrets and home directory paths, then commits the version, tags it and releases it. It then copies the app to the public [rlvdx/homebrew-tap](https://github.com/rlvdx/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The sources stay private. `just publish <version>` does the same from a Mac, as a fallback.
+
+The jobs run on GitHub-hosted runners or on Blacksmith, whichever `.github/scripts/route.sh` picks from this month's usage of the two free quotas. Linux jobs belong to Blacksmith and macOS jobs to GitHub, which keeps each cache warm; a job moves only once its home quota passes 85%.
 
 memo is ad-hoc signed, without an Apple Developer ID, so the cask lifts the quarantine flag Gatekeeper would otherwise block it on.
 
@@ -57,7 +59,8 @@ Every tool is pinned in `mise.toml`, and the Justfile is the entry point:
 ```sh
 just deps      # install the tools and dependencies
 just dev       # run with hot reload
-just check     # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, spelling), then test
+just check     # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, workflows, spelling), then test
+just audit     # secrets and personal data in the history, vulnerable dependencies, unsafe workflows
 just install   # build the release bundle into ~/Applications and open it
 ```
 

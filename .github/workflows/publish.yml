@@ -1,35 +1,56 @@
-# Once `just publish` has released a version, push its app to the public Homebrew
-# tap, so `brew install rlvdx/tap/memo` works without access to this repository.
+# Pushes a released app to the public Homebrew tap, so `brew install rlvdx/tap/memo`
+# works without access to this repository. The Release workflow calls it; a release
+# published by hand (`just publish`) starts it. The app is scanned once more first:
+# this is where it goes public.
 
 name: Publish
 
 on:
   release:
     types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag, such as v0.2.0.
+        required: true
+        type: string
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   tap:
-    if: ${{ !github.event.release.prerelease }}
-    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'release' || !github.event.release.prerelease }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 10
-    # Holds TAP_TOKEN, and only deploys from v* tags.
+    # Holds TAP_TOKEN.
     environment: release
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Download the app from the release
-        run: gh release download "$TAG" --pattern 'memo-*-macos-arm64.zip'
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: just gitleaks
+          # Nothing restored from a cache runs where the app goes public.
+          cache: false
+
+      - name: Download and scan the app
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'memo-*-macos-arm64.zip'
+          unzip -q memo-*-macos-arm64.zip -d unpacked
+          just scan-app unpacked/memo.app
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
 
-      - uses: rlvdx/homebrew-tap/.github/actions/publish-cask@main
+      - uses: rlvdx/homebrew-tap/.github/actions/publish-cask@0d428fb475d0ddd855155cf44db90fa734c48b27
         with:
           cask: memo
-          version: ${{ github.event.release.tag_name }}
+          version: ${{ env.TAG }}
           archive: memo-*-macos-arm64.zip
           definition: packaging/memo.rb
           token: ${{ secrets.TAP_TOKEN }}

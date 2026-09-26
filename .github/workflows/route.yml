@@ -1,0 +1,48 @@
+# Picks the runners of a workflow's Linux and macOS jobs from the GitHub and Blacksmith
+# pools; see .github/scripts/route.sh. It runs on the smallest Blacksmith runner, so it
+# still starts once the GitHub quota is spent.
+
+name: Route
+
+on:
+  workflow_call:
+    inputs:
+      provider:
+        description: auto, or github or blacksmith to force a pool.
+        type: string
+        default: auto
+    secrets:
+      usage-token:
+        description: A token that reads the Actions runs of every repository of the organisation.
+        required: false
+    outputs:
+      linux:
+        description: The runner label for Linux jobs.
+        value: ${{ jobs.route.outputs.linux }}
+      macos:
+        description: The runner label for macOS jobs.
+        value: ${{ jobs.route.outputs.macos }}
+
+permissions: {}
+
+jobs:
+  route:
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      linux: ${{ steps.pick.outputs.linux }}
+      macos: ${{ steps.pick.outputs.macos }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - id: pick
+        run: .github/scripts/route.sh
+        env:
+          GH_TOKEN: ${{ secrets.usage-token }}
+          ORG: ${{ github.repository_owner }}
+          PROVIDER: ${{ inputs.provider }}

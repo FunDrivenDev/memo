@@ -1,0 +1,12 @@
+self-hosted-runner:
+  # Blacksmith's runners, which route.yml picks between with GitHub's.
+  labels:
+    - blacksmith-2vcpu-ubuntu-2404-arm
+    - blacksmith-4vcpu-ubuntu-2404-arm
+    - blacksmith-6vcpu-macos-latest
+
+paths:
+  .github/workflows/*.yml:
+    ignore:
+      # GitHub's self-repository syntax (July 2026), which actionlint does not know yet.
+      - 'reusable workflow call "\$/.+" at "uses" is not following the format'
