@@ -1,0 +1,42 @@
+# Checks a pull request, and main after each push, on Linux only: macOS runners cost
+# ten times as much. `just ci` builds for Linux and lints the macOS code through its
+# Rust target; the macOS bundle itself is built by `just publish`, on a Mac.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # A new push to a pull request supersedes the previous run; runs on main always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the WebKitGTK stack Tauri builds against on Linux
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: jdx/mise-action@v4
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install the dependencies from the lockfiles
+        run: just deps frozen
+
+      - name: Check, build for Linux, lint for macOS
+        run: just ci

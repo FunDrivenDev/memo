@@ -1,0 +1,35 @@
+# Once `just publish` has released a version, push its app to the public Homebrew
+# tap, so `brew install rlvdx/tap/memo` works without access to this repository.
+
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  tap:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Holds TAP_TOKEN, and only deploys from v* tags.
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download the app from the release
+        run: gh release download "$TAG" --pattern 'memo-*-macos-arm64.zip'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+
+      - uses: rlvdx/homebrew-tap/.github/actions/publish-cask@main
+        with:
+          cask: memo
+          version: ${{ github.event.release.tag_name }}
+          archive: memo-*-macos-arm64.zip
+          definition: packaging/memo.rb
+          token: ${{ secrets.TAP_TOKEN }}

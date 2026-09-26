@@ -2,7 +2,8 @@
 # Run them through the Justfile, never directly.
 
 [tools]
-rust = { version = "1.98.1", components = "rustfmt,clippy" }
+# The macOS target lets Linux CI lint the macOS code.
+rust = { version = "1.98.1", components = "rustfmt,clippy", targets = "aarch64-apple-darwin" }
 deno = "2.9.7"
 just = "1.58.0"
 taplo = "0.10.0"
