@@ -58,9 +58,9 @@ Every search word must match fuzzily, in the title or on one line; as in fzf, `'
 brew install fundrivendev/tap/memo
 ```
 
-Releases come from the Release workflow, started from the Actions tab or with `gh workflow run release -f version=0.2.0`. Once CI has passed on `main`, it builds the app on macOS, scans it for secrets and home directory paths, then commits the version, tags it and releases it. It then copies the app to [FunDrivenDev/homebrew-tap](https://github.com/FunDrivenDev/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The version commit, the tag and the cask commit are signed as Fun Driven Stuff <stuff@fundriven.dev>. `just publish <version>` does the same from a Mac, as a fallback, signing with the backup key `~/.ssh/fundriven-stuff-signing`.
+Releases come from the Release workflow, started from the Actions tab or with `gh workflow run release -f version=0.2.0`. Once CI has passed on `main`, it builds the app on macOS, then, on Linux, scans it for secrets and home directory paths, commits the version, tags it and releases it. It then copies the app to [FunDrivenDev/homebrew-tap](https://github.com/FunDrivenDev/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The version commit, the tag and the cask commit are signed as Fun Driven Stuff <stuff@fundriven.dev>.
 
-The jobs run on GitHub-hosted runners or on Blacksmith, whichever `.github/scripts/route.sh` picks from this month's usage of the two free quotas. Linux jobs belong to Blacksmith and macOS jobs to GitHub, which keeps each cache warm; a job moves only once its home quota passes 85%.
+Every job runs on GitHub-hosted runners, free and unlimited for a public repository, and on Linux except the app build.
 
 memo is ad-hoc signed, without an Apple Developer ID, so the cask lifts the quarantine flag Gatekeeper would otherwise block it on.
 

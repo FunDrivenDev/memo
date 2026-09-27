@@ -1,5 +1,4 @@
-# Drops a closed pull request's caches from GitHub's store, so they never push main's out
-# of the 10 GB. Blacksmith's store evicts on its own.
+# Drops a closed pull request's caches, so they never push main's out of the 10 GB.
 
 name: Cache cleanup
 
@@ -11,7 +10,7 @@ permissions: {}
 
 jobs:
   cleanup:
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: write

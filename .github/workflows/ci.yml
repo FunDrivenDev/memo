@@ -20,16 +20,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  route:
-    uses: ./.github/workflows/route.yml
-    permissions:
-      contents: read
-    secrets:
-      usage_token: ${{ secrets.USAGE_TOKEN }}
-
   check:
-    needs: route
-    runs-on: ${{ needs.route.outputs.linux }}
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -57,8 +49,7 @@ jobs:
         run: just ci
 
   audit:
-    needs: route
-    runs-on: ${{ needs.route.outputs.linux }}
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read

@@ -1,8 +1,7 @@
-# Publishes a version from main, with no laptop involved: start it from the Actions tab
-# or with `gh workflow run release -f version=0.2.0`. The macOS build restores main's
-# cache, sets the version, and only once the app is built and scanned commits, tags and
-# releases it; the Publish workflow then pushes it to the Homebrew tap.
-# `just publish` does the same from a Mac, as a fallback.
+# Publishes a version from main: start it from the Actions tab or with
+# `gh workflow run release -f version=0.2.0`. Only the app build needs macOS; Linux
+# checks the request beforehand, then scans the app, commits, tags and releases the
+# version, and pushes the app to the Homebrew tap.
 
 name: Release
 
@@ -13,11 +12,6 @@ on:
         description: The version to publish, such as 0.2.0.
         required: true
         type: string
-      provider:
-        description: The runner pool.
-        type: choice
-        options: [auto, github, blacksmith]
-        default: auto
 
 permissions: {}
 
@@ -27,7 +21,7 @@ concurrency:
 
 jobs:
   preflight:
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: read
@@ -44,47 +38,74 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
 
-  route:
-    uses: ./.github/workflows/route.yml
+  build:
+    needs: preflight
+    runs-on: macos-latest
+    timeout-minutes: 45
     permissions:
       contents: read
-    with:
-      provider: ${{ inputs.provider }}
-    secrets:
-      usage_token: ${{ secrets.USAGE_TOKEN }}
-
-  build:
-    needs: [preflight, route]
-    runs-on: ${{ needs.route.outputs.macos }}
-    timeout-minutes: 45
-    # Holds SIGNING_KEY.
-    environment: release
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-
-      # Only main writes this cache, and only trusted code runs on main.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 zizmor: ignore[cache-poisoning]
         with:
-          workspaces: src-tauri
-          cache-on-failure: true
+          # Nothing restored from a cache goes into the app.
+          cache: false
 
       - name: Install the dependencies from the lockfiles
         run: just deps frozen
 
-      - name: Set the version, build, scan and zip the app
-        id: app
+      - name: Set the version, build and zip the app
         run: |
           just set-version "$VERSION"
           just build
-          echo "archive=$(just package "$VERSION")" >> "$GITHUB_OUTPUT"
+          just package "$VERSION"
         env:
           VERSION: ${{ inputs.version }}
+
+      # The versioned manifests go along, so the release job commits what was built.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: |
+            src-tauri/Cargo.toml
+            src-tauri/Cargo.lock
+            src-tauri/target/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Holds SIGNING_KEY and TAP_TOKEN.
+    environment: release
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+      ARCHIVE: src-tauri/target/dist/memo-${{ inputs.version }}-macos-arm64.zip
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: just gitleaks
+          cache: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: src-tauri
+
+      - name: Scan the app for secrets and home directory paths
+        run: |
+          unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/unpacked"
+          just scan-app "$RUNNER_TEMP/unpacked/memo.app"
 
       - name: Commit, tag and push the version
         run: |
@@ -102,21 +123,19 @@ jobs:
           git push --atomic origin HEAD:main "v$VERSION"
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
 
       - name: Release the app
         run: gh release create "v$VERSION" --verify-tag --title "memo $VERSION" --generate-notes "$ARCHIVE"
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-          ARCHIVE: ${{ steps.app.outputs.archive }}
 
-  # A release made with the workflow token starts no workflow, so publish from here.
-  publish:
-    needs: build
-    uses: ./.github/workflows/publish.yml
-    permissions:
-      contents: read
-    with:
-      tag: v${{ inputs.version }}
+      - name: Push the app to the Homebrew tap
+        uses: FunDrivenDev/homebrew-tap/.github/actions/publish-cask@4cadfc0c521cb71d38ea087046501c261e0e8dd5
+        with:
+          cask: memo
+          version: ${{ inputs.version }}
+          archive: ${{ env.ARCHIVE }}
+          definition: packaging/memo.rb
+          token: ${{ secrets.TAP_TOKEN }}
+          signing-key: ${{ secrets.SIGNING_KEY }}

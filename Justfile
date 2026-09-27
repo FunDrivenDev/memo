@@ -54,7 +54,7 @@ lint family="":
     fi
     if want markdown; then rumdl check --quiet .; fi
     if want just; then just --fmt --unstable --check; fi
-    if want workflows; then actionlint; shellcheck .github/scripts/*.sh; fi
+    if want workflows; then actionlint; fi
     if want spelling; then typos; fi
     if want secrets; then gitleaks git --config .gitleaks.toml --redact --no-banner --log-level warn .; fi
 
@@ -106,41 +106,14 @@ set-version version:
     perl -0pi -e 's/(\[package\]\nname = "memo"\nversion = )"[^"]*"/$1"{{ version }}"/' {{ manifest }}
     cargo update --manifest-path {{ manifest }} --workspace --quiet
 
-# Scan the release bundle, then zip it as src-tauri/target/dist/memo-<version>-macos-arm64.zip and print that path.
-package version: scan-app
+# Zip the release bundle as src-tauri/target/dist/memo-<version>-macos-arm64.zip, keeping its signature.
+package version:
     #!/usr/bin/env bash
     set -euo pipefail
     archive="src-tauri/target/dist/memo-{{ version }}-macos-arm64.zip"
     mkdir -p "$(dirname "$archive")"
     rm -f "$archive"
     ditto -c -k --keepParent {{ app }} "$archive"
-    echo "$archive"
-
-# Fallback for when the Release workflow cannot run: publish `version` from this Mac, once CI passed on the pushed main. The app is built in a temporary worktree, so no path in it names you.
-publish version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    version="{{ version }}"
-    tag="v$version"
-    [[ "$(git branch --show-current)" == main ]] || { echo "publish from main" >&2; exit 1; }
-    [[ -z "$(git status --porcelain)" ]] || { echo "commit or stash the changes first" >&2; exit 1; }
-    git fetch --quiet --tags origin main
-    [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || { echo "main differs from origin/main: push or pull first" >&2; exit 1; }
-    if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then echo "$tag already exists" >&2; exit 1; fi
-    ci=$(gh run list --commit "$(git rev-parse HEAD)" --workflow CI --json status,conclusion --jq '.[0] | "\(.status) \(.conclusion)"')
-    [[ "$ci" == "completed success" ]] || { echo "CI has not passed on HEAD (${ci:-no run}): wait for it or fix it" >&2; exit 1; }
-    # Sign as the project, with the backup key of Fun Driven Stuff <stuff@fundriven.dev>.
-    as_stuff=(-c user.name="Fun Driven Stuff" -c user.email=stuff@fundriven.dev -c gpg.format=ssh -c user.signingkey="$HOME/.ssh/fundriven-stuff-signing")
-    just set-version "$version"
-    git diff --quiet || git "${as_stuff[@]}" commit --quiet --gpg-sign -m "Publish $version" {{ manifest }} src-tauri/Cargo.lock
-    tree=$(mktemp -d)
-    trap 'git worktree remove --force "$tree"' EXIT
-    git worktree add --quiet --detach "$tree" HEAD
-    (cd "$tree" && mise trust --quiet && just deps frozen && just build)
-    archive=$(cd "$tree" && just package "$version")
-    git "${as_stuff[@]}" tag --sign "$tag" -m "memo $version"
-    git push --quiet origin main "$tag"
-    gh release create "$tag" --title "memo $version" --generate-notes "$tree/$archive"
 
 # Print the size of the release binary and bundle, and of the front end.
 size:
