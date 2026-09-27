@@ -5,9 +5,11 @@
 //! window can replace that list with folders of the user's choice, kept per installation
 //! in memo's own settings file.
 //!
-//! Archived notes go to one archive folder, by default an `archive` sibling of Claude
-//! Code's plans folder, into a subfolder named after the folder they come from.
+//! Archived notes go to one archive folder, into a subfolder named after the folder they
+//! come from. memo sets it on first launch to an `archive` sibling of Claude Code's plans
+//! folder; it stays there when that folder moves.
 
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -25,7 +27,7 @@ pub struct Settings {
     /// The folders to show, as typed (`~` allowed); `None` follows Claude Code's plans folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folders: Option<Vec<String>>,
-    /// The archive folder, as typed; `None` is the sibling of Claude Code's plans folder.
+    /// The archive folder, as typed; set on first launch by [`pin_archive`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archive: Option<String>,
 }
@@ -59,10 +61,16 @@ pub fn save(file: &Path, settings: &Settings) -> Result<(), String> {
     std::fs::write(file, text + "\n").map_err(|e| e.to_string())
 }
 
-/// Checks a typed folder is absolute or under `~`.
+/// Checks a typed folder is absolute or under `~`, and drops its trailing slashes.
 pub fn clean_folder(folder: &str) -> Result<String, String> {
     let folder = folder.trim();
-    if folder == "~" || folder.starts_with("~/") || folder.starts_with('/') {
+    let folder = match folder.trim_end_matches('/') {
+        "" if folder.starts_with('/') => "/",
+        trimmed => trimmed,
+    };
+    if folder.is_empty() {
+        Err("No folder given".to_string())
+    } else if folder == "~" || folder.starts_with("~/") || folder.starts_with('/') {
         Ok(folder.to_string())
     } else {
         Err(format!("{folder} is not an absolute path or one under ~"))
@@ -98,7 +106,18 @@ pub fn default_archive(home: &Path, claude_dir: &Path) -> String {
     tilde(&plans.parent().unwrap_or(&plans).join("archive"), home)
 }
 
-/// The archive folder the settings name, or the default one.
+/// Writes the default archive into the settings when they name none, so that it stays put
+/// when Claude Code's plans folder moves.
+pub fn pin_archive(file: &Path, home: &Path, claude_dir: &Path) -> Result<(), String> {
+    let mut settings = load(file);
+    if settings.archive.is_some() {
+        return Ok(());
+    }
+    settings.archive = Some(default_archive(home, claude_dir));
+    save(file, &settings)
+}
+
+/// The archive folder the settings name, or the default one if they could not be saved.
 pub fn archive(settings: &Settings, home: &Path, claude_dir: &Path) -> String {
     settings
         .archive
@@ -153,6 +172,67 @@ pub fn discover(folders: &[String], home: &Path) -> Vec<Folder> {
     }
     disambiguate(&mut found);
     found
+}
+
+/// The most folders [`complete`] offers.
+const COMPLETIONS: usize = 50;
+
+/// The folders completing a typed path.
+#[derive(Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Completion {
+    /// The subfolders whose name starts with the last component, written as typed.
+    pub folders: Vec<String>,
+    /// The folder, as typed, macOS refused to list.
+    pub denied: Option<String>,
+}
+
+/// Lists the subfolders completing the last component of `typed`, case-insensitively;
+/// hidden ones only when that component starts with a dot.
+pub fn complete(typed: &str, home: &Path) -> Completion {
+    let typed = typed.trim_start();
+    if typed == "~" {
+        return Completion {
+            folders: vec!["~/".to_string()],
+            denied: None,
+        };
+    }
+    let Some((dir, prefix)) = typed.rsplit_once('/') else {
+        return Completion::default();
+    };
+    if !(dir.is_empty() || dir == "~" || dir.starts_with("~/") || dir.starts_with('/')) {
+        return Completion::default();
+    }
+    let path = if dir.is_empty() {
+        PathBuf::from("/")
+    } else {
+        expand(dir, home)
+    };
+    let entries = match std::fs::read_dir(&path) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::PermissionDenied => {
+            return Completion {
+                folders: Vec::new(),
+                denied: Some(format!("{dir}/")),
+            };
+        }
+        Err(_) => return Completion::default(),
+    };
+    let lower = prefix.to_lowercase();
+    let mut folders: Vec<String> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let hidden = name.starts_with('.') && !prefix.starts_with('.');
+            (!hidden && name.to_lowercase().starts_with(&lower) && entry.path().is_dir())
+                .then(|| format!("{dir}/{name}"))
+        })
+        .collect();
+    folders.sort_by_key(|f| f.to_lowercase());
+    folders.truncate(COMPLETIONS);
+    Completion {
+        folders,
+        denied: None,
+    }
 }
 
 /// The `plansDirectory` of a settings file, as written.
@@ -259,6 +339,53 @@ mod tests {
     }
 
     #[test]
+    fn pins_the_archive_on_first_launch() {
+        let home = tempfile::tempdir().unwrap();
+        let claude = home.path().join(".claude");
+        let file = home.path().join("memo/settings.json");
+        std::fs::create_dir_all(&claude).unwrap();
+        pin_archive(&file, home.path(), &claude).unwrap();
+        assert_eq!(load(&file).archive.as_deref(), Some("~/.claude/archive"));
+
+        std::fs::write(
+            claude.join("settings.json"),
+            r#"{"plansDirectory": "~/n/plans"}"#,
+        )
+        .unwrap();
+        pin_archive(&file, home.path(), &claude).unwrap();
+        assert_eq!(load(&file).archive.as_deref(), Some("~/.claude/archive"));
+    }
+
+    #[test]
+    fn completes_folders() {
+        let home = tempfile::tempdir().unwrap();
+        for dir in [
+            "Notes/plans",
+            "Notes/reports",
+            "notebook",
+            ".hidden",
+            "Nope",
+        ] {
+            std::fs::create_dir_all(home.path().join(dir)).unwrap();
+        }
+        std::fs::write(home.path().join("Notes/plan.md"), "").unwrap();
+        let folders = |typed| complete(typed, home.path()).folders;
+
+        assert_eq!(folders("~/no"), ["~/Nope", "~/notebook", "~/Notes"]);
+        assert_eq!(folders("~/Notes/"), ["~/Notes/plans", "~/Notes/reports"]);
+        assert_eq!(folders("~/Notes/p"), ["~/Notes/plans"]);
+        assert_eq!(folders("~/.h"), ["~/.hidden"]);
+        assert_eq!(folders("~"), ["~/"]);
+        assert!(folders("relative/p").is_empty());
+        assert!(folders("~/missing/").is_empty());
+        let absolute = format!("{}/Notes/r", home.path().display());
+        assert_eq!(
+            complete(&absolute, home.path()).folders,
+            [format!("{}/Notes/reports", home.path().display())]
+        );
+    }
+
+    #[test]
     fn refuses_an_archive_over_the_folders() {
         let home = Path::new("/h");
         let folders = [Folder {
@@ -272,8 +399,10 @@ mod tests {
 
     #[test]
     fn cleans_folders() {
-        let typed = ["  ~/a ", "", "~/a", "/b"].map(String::from);
-        assert_eq!(clean_folders(&typed).unwrap(), ["~/a", "/b"]);
+        let typed = ["  ~/a ", "", "~/a", "/b/", "~/"].map(String::from);
+        assert_eq!(clean_folders(&typed).unwrap(), ["~/a", "/b", "~"]);
+        assert_eq!(clean_folder("/").unwrap(), "/");
+        assert!(clean_folder(" ").is_err());
         assert!(clean_folders(&["relative/path".to_string()]).is_err());
     }
 

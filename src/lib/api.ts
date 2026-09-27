@@ -48,11 +48,16 @@ export interface Settings {
   /** Claude Code's plans folder, shown when no folder is chosen. */
   defaults: string[];
   custom: boolean;
-  /** The archive folder, as typed, and the default one beside Claude Code's plans folder. */
+  /** The archive folder, as typed. */
   archive: string;
-  archive_default: string;
-  archive_custom: boolean;
   file: string;
+}
+
+export interface Completion {
+  /** The subfolders completing the typed path, written the same way. */
+  folders: string[];
+  /** The folder macOS refused to list, as typed. */
+  denied: string | null;
 }
 
 export interface Snippet {
@@ -80,10 +85,13 @@ export interface SessionDefaults {
 
 export const library = () => invoke<Library>("library");
 export const settings = () => invoke<Settings>("settings");
-/** Saves the folders to show and the archive; `null` goes back to the default. */
-export const saveSettings = (folders: string[] | null, archive: string | null) =>
+/** Saves the folders to show, `null` following Claude Code's plans folder, and the archive. */
+export const saveSettings = (folders: string[] | null, archive: string) =>
   invoke<Library>("save_settings", { folders, archive });
 export const chooseFolder = () => invoke<string | null>("choose_folder");
+export const completeFolder = (typed: string) => invoke<Completion>("complete_folder", { typed });
+/** Opens System Settings where memo can be allowed into `folder`. */
+export const openPrivacySettings = (folder: string) => invoke<void>("open_privacy_settings", { folder });
 export const render = (id: string) => invoke<Rendered>("render", { id });
 export const search = (query: string, archived: boolean) => invoke<Hit[]>("search", { query, archived });
 export const archive = (id: string) => invoke<Moved>("archive", { id });

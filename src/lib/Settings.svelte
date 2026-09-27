@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as api from "./api";
   import type { Library } from "./api";
+  import FolderInput from "./FolderInput.svelte";
   import Modal from "./Modal.svelte";
 
   let { onSaved, onError, onClose }: {
@@ -14,8 +15,6 @@
   let defaults = $state<string[]>([]);
   let custom = $state(false);
   let archive = $state("");
-  let archiveDefault = $state("");
-  let archiveCustom = $state(false);
   let file = $state("");
   let typed = $state("");
   let loading = $state(true);
@@ -29,8 +28,6 @@
         defaults = settings.defaults;
         custom = settings.custom;
         archive = settings.archive;
-        archiveDefault = settings.archive_default;
-        archiveCustom = settings.archive_custom;
         file = settings.file;
         loading = false;
       })
@@ -67,11 +64,6 @@
     }
   }
 
-  function setArchive(path: string) {
-    archive = path;
-    archiveCustom = true;
-  }
-
   async function save() {
     if (typed.trim()) {
       add(typed);
@@ -79,10 +71,7 @@
     }
     try {
       onSaved(
-        await api.saveSettings(
-          custom ? folders.map((f) => f.path) : null,
-          archiveCustom && archive.trim() ? archive : null,
-        ),
+        await api.saveSettings(custom ? folders.map((f) => f.path) : null, archive),
       );
     } catch (e) {
       onError(String(e));
@@ -130,7 +119,7 @@
       </ul>
 
       <div class="add">
-        <input bind:this={field} bind:value={typed} placeholder="~/Notes/claude/reports" spellcheck="false" />
+        <FolderInput bind:input={field} bind:value={typed} placeholder="~/Notes/claude/reports" />
         <button onclick={() => {
           add(typed);
           typed = "";
@@ -138,33 +127,17 @@
         <button onclick={() => choose((path) => add(path, true))}>Choose…</button>
       </div>
       <button class="link" disabled={!custom} onclick={useDefault}>Use Claude Code's plans folder</button>
+      <p class="hint">Typing a path lists the folders it can complete: <kbd>↑</kbd> <kbd>↓</kbd> pick, <kbd>⇥</kbd> goes in.</p>
 
       <h4>Archive</h4>
       <p>
-        Where <kbd>a</kbd> moves notes, into a subfolder named after their folder.
-        {#if archiveCustom}
-          Chosen for this installation.
-        {:else}
-          By default, beside Claude Code's plans folder.
-        {/if}
+        Where <kbd>a</kbd> moves notes, into a subfolder named after their folder. memo set it on first launch beside
+        Claude Code's plans folder, and leaves it there if that folder moves.
       </p>
       <div class="add">
-        <input
-          value={archive}
-          oninput={(e) => setArchive(e.currentTarget.value)}
-          placeholder={archiveDefault}
-          spellcheck="false"
-        />
-        <button onclick={() => choose(setArchive)}>Choose…</button>
+        <FolderInput bind:value={archive} />
+        <button onclick={() => choose((path) => (archive = path))}>Choose…</button>
       </div>
-      <button
-        class="link"
-        disabled={!archiveCustom}
-        onclick={() => {
-          archive = archiveDefault;
-          archiveCustom = false;
-        }}
-      >Use the default: {archiveDefault}</button>
       <p class="hint">Changing it leaves the notes already archived where they are.</p>
 
       <div class="actions">
@@ -227,8 +200,7 @@
     color: var(--yellow);
   }
 
-  code,
-  input {
+  code {
     font-family: var(--mono);
     font-size: 12.5px;
   }
@@ -238,10 +210,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-
-  .add input {
-    flex: 1;
   }
 
   h4 {

@@ -8,15 +8,17 @@ It uses Tauri 2 (a Rust backend and the system WebView, so no bundled browser) a
 
 By default memo shows Claude Code's plans folder: `plansDirectory` in `settings.local.json` or `settings.json` of the Claude Code configuration (`$CLAUDE_CONFIG_DIR`, else `~/.claude`), else `~/.claude/plans`.
 
-The settings (`⌘,`, or memo › Settings…) replace it with folders of your choice, typed or picked in Finder, and choose the archive folder. They are kept per installation in `~/Library/Application Support/dev.rlvdx.memo/settings.json`; each has a button back to its default.
+The settings (`⌘,`, or memo › Settings…) replace it with folders of your choice, typed or picked in Finder, and choose the archive folder. They are kept per installation in `~/Library/Application Support/dev.rlvdx.memo/settings.json`; the folders have a button back to the default.
+
+Typing a path lists the folders that complete it, read from the disk: `↑` `↓` pick one, `⇥` or a click goes into it, `↵` takes it. memo is not sandboxed, so it reads most folders freely. macOS asks once before letting it into Desktop, Documents, Downloads or iCloud Drive; a folder it refused shows a Grant access… button that opens the right pane of System Settings (Files and Folders for those, Full Disk Access for the rest).
 
 ## Archive
 
-`a` moves the note, without confirmation, to `<archive>/<folder name>/`; a taken name gets `-2`, `-3`... The archive is by default an `archive` folder beside Claude Code's plans folder (`~/Notes/claude/plans` → `~/Notes/claude/archive/plans/`). A message confirms it, and `u` moves the note back while the message shows.
+`a` moves the note, without confirmation, to `<archive>/<folder name>/`; a taken name gets `-2`, `-3`... On first launch memo sets the archive to an `archive` folder beside Claude Code's plans folder (`~/Notes/claude/plans` → `~/Notes/claude/archive/plans/`) and saves it in its settings, so it stays there if `plansDirectory` changes. A message confirms it, and `u` moves the note back while the message shows.
 
 `⇧A` switches the sidebar to the archive, one section per folder notes came from. There `a` restores the note to the watched folder of the same name, again with `u` to undo. Search covers the pane shown only; in the palette, `⇥` switches between the notes and the archive, keeping the query, and an empty result offers it.
 
-Changing the archive folder, or Claude Code's `plansDirectory` while the archive follows the default, leaves the notes already archived where they are: move them in Finder.
+Changing the archive folder leaves the notes already archived where they are: move them in Finder.
 
 Each existing folder becomes a sidebar section. The section lists the `.md` files directly inside it, most recently modified first. The folders are watched, so new notes appear as Claude writes them.
 

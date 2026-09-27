@@ -161,10 +161,8 @@ struct SettingsView {
     /// Claude Code's plans folder, used when no folder is chosen.
     defaults: Vec<String>,
     custom: bool,
-    /// The archive folder, as typed, and the default one.
+    /// The archive folder, as typed.
     archive: String,
-    archive_default: String,
-    archive_custom: bool,
     file: PathBuf,
 }
 
@@ -207,23 +205,21 @@ fn settings(app: State<App>) -> SettingsView {
         defaults: config::default_folders(&app.home, &claude_dir),
         custom: settings.folders.is_some(),
         archive: config::archive(&settings, &app.home, &claude_dir),
-        archive_default: config::default_archive(&app.home, &claude_dir),
-        archive_custom: settings.archive.is_some(),
         file: app.settings_file.clone(),
     }
 }
 
-/// Saves the folders to show and the archive; `None` goes back to the default.
+/// Saves the folders to show, `None` following Claude Code's plans folder, and the archive.
 #[tauri::command]
 fn save_settings(
     app: State<App>,
     handle: AppHandle,
     folders: Option<Vec<String>>,
-    archive: Option<String>,
+    archive: &str,
 ) -> Result<Library, String> {
     let settings = config::Settings {
         folders: folders.map(|f| config::clean_folders(&f)).transpose()?,
-        archive: archive.map(|a| config::clean_folder(&a)).transpose()?,
+        archive: Some(config::clean_folder(archive).map_err(|e| format!("Archive: {e}"))?),
     };
     let claude_dir = config::claude_dir(&app.home);
     let watched = config::discover(
@@ -261,6 +257,32 @@ async fn choose_folder(app: State<'_, App>) -> Result<Option<String>, String> {
         .filter(|p| !p.is_empty())
         .unwrap_or(&path);
     Ok(Some(config::tilde(Path::new(path), &app.home)))
+}
+
+#[tauri::command]
+fn complete_folder(app: State<App>, typed: &str) -> config::Completion {
+    config::complete(typed, &app.home)
+}
+
+/// Opens the pane of System Settings that lets memo into a folder: Files and Folders for
+/// the ones macOS asks about (Desktop, Documents, Downloads, iCloud Drive), else Full Disk
+/// Access.
+#[tauri::command]
+fn open_privacy_settings(app: State<App>, folder: &str) -> Result<(), String> {
+    let path = config::expand(folder, &app.home);
+    let asked = [
+        "Desktop",
+        "Documents",
+        "Downloads",
+        "Library/Mobile Documents",
+    ];
+    let pane = if asked.iter().any(|f| path.starts_with(app.home.join(f))) {
+        "Privacy_FilesAndFolders"
+    } else {
+        "Privacy_AllFiles"
+    };
+    let url = format!("x-apple.systempreferences:com.apple.preference.security?{pane}");
+    open(&[OsStr::new(&url)])
 }
 
 #[tauri::command]
@@ -460,6 +482,10 @@ pub fn run() {
         })
         .setup(|app| {
             let state = app.state::<App>();
+            let claude_dir = config::claude_dir(&state.home);
+            if let Err(e) = config::pin_archive(&state.settings_file, &state.home, &claude_dir) {
+                eprintln!("memo: could not save the archive folder: {e}");
+            }
             state.reload(app.handle());
             Ok(())
         })
@@ -468,6 +494,8 @@ pub fn run() {
             settings,
             save_settings,
             choose_folder,
+            complete_folder,
+            open_privacy_settings,
             render,
             search,
             archive,
