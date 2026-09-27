@@ -16,6 +16,7 @@ deps mode="install":
     #!/usr/bin/env bash
     set -euo pipefail
     mise install --quiet
+    git config core.hooksPath .githooks  # the pre-push secrets check
     case "{{ mode }}" in
         install) deno install --quiet && cargo fetch --manifest-path {{ manifest }} ;;
         clean) rm -rf node_modules && cargo clean --manifest-path {{ manifest }} && deno install --quiet --frozen && cargo fetch --locked --manifest-path {{ manifest }} ;;
@@ -31,12 +32,12 @@ fmt:
     rumdl fmt --quiet .
     just --fmt --unstable
 
-# Lint everything; `family` narrows it to rust, web, toml, markdown, just or spelling.
+# Lint everything; `family` narrows it to rust, web, toml, markdown, just, spelling or secrets.
 lint family="":
     #!/usr/bin/env bash
     set -euo pipefail
     want() { [[ -z "{{ family }}" || "{{ family }}" == "$1" ]]; }
-    case "{{ family }}" in ""|rust|web|toml|markdown|just|spelling) ;; *) echo "unknown family {{ family }}" >&2; exit 2 ;; esac
+    case "{{ family }}" in ""|rust|web|toml|markdown|just|spelling|secrets) ;; *) echo "unknown family {{ family }}" >&2; exit 2 ;; esac
     if want rust; then
         cargo fmt --manifest-path {{ manifest }} --check
         cargo clippy --manifest-path {{ manifest }} --all-targets --locked -- -D warnings
@@ -53,6 +54,7 @@ lint family="":
     if want markdown; then rumdl check --quiet .; fi
     if want just; then just --fmt --unstable --check; fi
     if want spelling; then typos; fi
+    if want secrets; then gitleaks git --config .gitleaks.toml --redact --no-banner --log-level warn .; fi
 
 # Run the Rust tests.
 test:
