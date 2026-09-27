@@ -45,9 +45,9 @@ Every search word must match fuzzily, in the title or on one line; as in fzf, `'
 Every tool is pinned in `mise.toml`, and the Justfile is the entry point:
 
 ```sh
-just deps      # install the tools and dependencies
+just deps      # install the tools, the dependencies and the pre-push secrets hook
 just dev       # run with hot reload
-just check     # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, spelling), then test
+just check     # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, spelling, secrets), then test
 just install   # build the release bundle into ~/Applications and open it
 ```
 
