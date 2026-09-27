@@ -259,6 +259,22 @@ async fn choose_folder(app: State<'_, App>) -> Result<Option<String>, String> {
     Ok(Some(config::tilde(Path::new(path), &app.home)))
 }
 
+/// A typed folder, cleaned, and whether it exists.
+#[tauri::command]
+fn inspect_folder(app: State<App>, folder: &str) -> Result<FolderSetting, String> {
+    let path = config::clean_folder(folder)?;
+    Ok(FolderSetting {
+        exists: config::exists(&path, &app.home),
+        path,
+    })
+}
+
+/// Creates a folder typed in the settings; the settings list only existing ones.
+#[tauri::command]
+fn create_folder(app: State<App>, folder: &str) -> Result<(), String> {
+    config::create(&config::clean_folder(folder)?, &app.home)
+}
+
 #[tauri::command]
 fn complete_folder(app: State<App>, typed: &str) -> config::Completion {
     config::complete(typed, &app.home)
@@ -494,6 +510,8 @@ pub fn run() {
             settings,
             save_settings,
             choose_folder,
+            inspect_folder,
+            create_folder,
             complete_folder,
             open_privacy_settings,
             render,

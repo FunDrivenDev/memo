@@ -154,6 +154,12 @@ pub fn exists(folder: &str, home: &Path) -> bool {
     expand(folder, home).is_dir()
 }
 
+/// Creates a folder, as typed, with its missing parents.
+pub fn create(folder: &str, home: &Path) -> Result<(), String> {
+    let path = expand(folder, home);
+    std::fs::create_dir_all(&path).map_err(|e| format!("Could not create {folder}: {e}"))
+}
+
 /// The existing folders among `folders`, without duplicates.
 pub fn discover(folders: &[String], home: &Path) -> Vec<Folder> {
     let mut found: Vec<Folder> = Vec::new();
@@ -395,6 +401,15 @@ mod tests {
         assert!(check_archive("~/n/archive", &folders, home).is_ok());
         assert!(check_archive("~/n/plans", &folders, home).is_err());
         assert!(check_archive("~/n", &folders, home).is_err());
+    }
+
+    #[test]
+    fn creates_folders_with_their_parents() {
+        let home = tempfile::tempdir().unwrap();
+        assert!(!exists("~/a/b", home.path()));
+        create("~/a/b", home.path()).unwrap();
+        assert!(exists("~/a/b", home.path()));
+        create("~/a/b", home.path()).unwrap();
     }
 
     #[test]

@@ -1,93 +1,133 @@
 <script lang="ts">
   import * as api from "./api";
-  import type { Library } from "./api";
+  import type { FolderSetting, Library } from "./api";
   import FolderInput from "./FolderInput.svelte";
   import Modal from "./Modal.svelte";
 
+  // Every change is saved as it is made: there is no Save button. A typed folder must
+  // exist; one that does not is created only once confirmed.
   let { onSaved, onError, onClose }: {
     onSaved: (library: Library) => void;
     onError: (message: string) => void;
     onClose: () => void;
   } = $props();
 
-  // `exists` is unknown (undefined) for a folder typed since the window opened.
-  let folders = $state<{ path: string; exists?: boolean }[]>([]);
+  let folders = $state<FolderSetting[]>([]);
   let defaults = $state<string[]>([]);
   let custom = $state(false);
   let archive = $state("");
   let file = $state("");
   let typed = $state("");
+  let typedArchive = $state("");
   let loading = $state(true);
   let field: HTMLInputElement | undefined = $state();
+  let archiveField: HTMLInputElement | undefined = $state();
+  /** A typed folder that does not exist, waiting for the confirmation to create it. */
+  let missing = $state<{ path: string; then: (path: string) => Promise<void>; from: HTMLElement | null } | null>(
+    null,
+  );
+  let createButton: HTMLButtonElement | undefined = $state();
+
+  async function load() {
+    const settings = await api.settings();
+    folders = settings.folders;
+    defaults = settings.defaults;
+    custom = settings.custom;
+    archive = settings.archive;
+    typedArchive = settings.archive;
+    file = settings.file;
+    loading = false;
+  }
 
   $effect(() => {
-    api
-      .settings()
-      .then((settings) => {
-        folders = settings.folders;
-        defaults = settings.defaults;
-        custom = settings.custom;
-        archive = settings.archive;
-        file = settings.file;
-        loading = false;
-      })
-      .catch((e) => onError(String(e)));
+    load().catch((e) => onError(String(e)));
   });
 
   $effect(() => {
     if (!loading) field?.focus();
   });
 
-  function add(path: string, exists?: boolean) {
-    path = path.trim();
-    if (!path) return;
-    if (!folders.some((f) => f.path === path)) folders.push({ path, exists });
-    custom = true;
-  }
+  $effect(() => {
+    createButton?.focus();
+  });
 
-  function remove(path: string) {
-    folders = folders.filter((f) => f.path !== path);
-    custom = true;
-  }
-
-  function useDefault() {
-    folders = defaults.map((path) => ({ path }));
-    custom = false;
-  }
-
-  async function choose(then: (path: string) => void) {
+  /** Saves the folders (`null` for Claude Code's plans folder) and the archive; true once saved. */
+  async function save(next: string[] | null, nextArchive = archive): Promise<boolean> {
     try {
-      const path = await api.chooseFolder();
-      if (path) then(path);
+      onSaved(await api.saveSettings(next, nextArchive));
+      await load();
+      return true;
+    } catch (e) {
+      onError(String(e));
+      return false;
+    }
+  }
+
+  const paths = () => folders.map((f) => f.path);
+
+  /** Runs `then` on the typed folder once it exists, asking first to create a missing one. */
+  async function existing(folder: string, then: (path: string) => Promise<void>) {
+    try {
+      const { path, exists } = await api.inspectFolder(folder);
+      if (exists) await then(path);
+      else missing = { path, then, from: document.activeElement as HTMLElement | null };
     } catch (e) {
       onError(String(e));
     }
   }
 
-  async function save() {
-    if (typed.trim()) {
-      add(typed);
-      typed = "";
-    }
+  async function create() {
+    if (!missing) return;
+    const { path, then } = missing;
+    closeMissing();
     try {
-      onSaved(
-        await api.saveSettings(custom ? folders.map((f) => f.path) : null, archive),
-      );
+      await api.createFolder(path);
+    } catch (e) {
+      onError(String(e));
+      return;
+    }
+    await then(path);
+  }
+
+  function closeMissing() {
+    missing?.from?.focus();
+    missing = null;
+  }
+
+  async function add(path: string) {
+    if (!folders.some((f) => f.path === path)) await save([...paths(), path]);
+  }
+
+  function addTyped() {
+    if (!typed.trim()) return;
+    existing(typed, async (path) => {
+      await add(path);
+      typed = "";
+    });
+  }
+
+  function setArchive() {
+    if (!typedArchive.trim() || typedArchive === archive) return;
+    existing(typedArchive, async (path) => {
+      await save(custom ? paths() : null, path);
+    });
+  }
+
+  async function choose(then: (path: string) => Promise<unknown>) {
+    try {
+      const path = await api.chooseFolder();
+      if (path) await then(path);
     } catch (e) {
       onError(String(e));
     }
   }
 
   function onKeydown(event: KeyboardEvent) {
-    // A focused button keeps its own Enter.
-    if (event.key !== "Enter" || !(event.metaKey || (event.target as HTMLElement).tagName === "INPUT")) return;
+    if (event.key !== "Enter") return;
+    if (event.target === field) addTyped();
+    else if (event.target === archiveField) setArchive();
+    else return;
     event.preventDefault();
-    if (event.metaKey || event.target !== field || !typed.trim()) {
-      save();
-    } else {
-      add(typed);
-      typed = "";
-    }
   }
 </script>
 
@@ -108,8 +148,9 @@
         {#each folders as folder (folder.path)}
           <li>
             <code>{folder.path}</code>
-            {#if folder.exists === false}<span class="missing">missing</span>{/if}
-            <button class="remove" title="Remove" aria-label={`Remove ${folder.path}`} onclick={() => remove(folder.path)}>
+            {#if !folder.exists}<span class="missing">missing</span>{/if}
+            <button class="remove" title="Remove" aria-label={`Remove ${folder.path}`}
+              onclick={() => save(paths().filter((p) => p !== folder.path))}>
               ×
             </button>
           </li>
@@ -120,14 +161,14 @@
 
       <div class="add">
         <FolderInput bind:input={field} bind:value={typed} placeholder="~/Notes/claude/reports" />
-        <button onclick={() => {
-          add(typed);
-          typed = "";
-        }}>Add <kbd>↵</kbd></button>
-        <button onclick={() => choose((path) => add(path, true))}>Choose…</button>
+        <button onclick={addTyped}>Add <kbd>↵</kbd></button>
+        <button onclick={() => choose(add)}>Choose…</button>
       </div>
-      <button class="link" disabled={!custom} onclick={useDefault}>Use Claude Code's plans folder</button>
-      <p class="hint">Typing a path lists the folders it can complete: <kbd>↑</kbd> <kbd>↓</kbd> pick, <kbd>⇥</kbd> goes in.</p>
+      <button class="link" disabled={!custom} onclick={() => save(null)}>Use Claude Code's plans folder</button>
+      <p class="hint">
+        Typing a path lists the existing folders it can complete: <kbd>↑</kbd> <kbd>↓</kbd> pick, <kbd>⇥</kbd> goes
+        in.
+      </p>
 
       <h4>Archive</h4>
       <p>
@@ -135,20 +176,34 @@
         Claude Code's plans folder, and leaves it there if that folder moves.
       </p>
       <div class="add">
-        <FolderInput bind:value={archive} />
-        <button onclick={() => choose((path) => (archive = path))}>Choose…</button>
+        <FolderInput bind:input={archiveField} bind:value={typedArchive} />
+        <button onclick={() => choose((path) => save(custom ? paths() : null, path))}>Choose…</button>
       </div>
-      <p class="hint">Changing it leaves the notes already archived where they are.</p>
+      <p class="hint">
+        {#if typedArchive !== archive}
+          <kbd>↵</kbd> makes it the archive; closing keeps <code>{archive}</code>.
+        {:else}
+          Changing it leaves the notes already archived where they are.
+        {/if}
+      </p>
 
-      <div class="actions">
-        <span class="spacer"></span>
-        <button onclick={onClose}>Cancel</button>
-        <button class="primary" onclick={save}>Save <kbd>⌘↵</kbd></button>
-      </div>
-      <p class="hint">Kept in <code>{file}</code>.</p>
+      <p class="hint">Every change is saved at once, in <code>{file}</code>.</p>
     </div>
   {/if}
 </Modal>
+
+{#if missing}
+  <Modal title="Create the folder?" small onClose={closeMissing}>
+    <div class="form">
+      <p><code>{missing.path}</code> does not exist. memo can create it, with any missing parent.</p>
+      <div class="actions">
+        <span class="spacer"></span>
+        <button onclick={closeMissing}>Cancel <kbd>esc</kbd></button>
+        <button class="primary" bind:this={createButton} onclick={create}>Create <kbd>↵</kbd></button>
+      </div>
+    </div>
+  </Modal>
+{/if}
 
 <style>
   .form {

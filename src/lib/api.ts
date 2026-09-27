@@ -89,6 +89,9 @@ export const settings = () => invoke<Settings>("settings");
 export const saveSettings = (folders: string[] | null, archive: string) =>
   invoke<Library>("save_settings", { folders, archive });
 export const chooseFolder = () => invoke<string | null>("choose_folder");
+/** The typed folder, cleaned, and whether it exists; an error for a path neither absolute nor under `~`. */
+export const inspectFolder = (folder: string) => invoke<FolderSetting>("inspect_folder", { folder });
+export const createFolder = (folder: string) => invoke<void>("create_folder", { folder });
 export const completeFolder = (typed: string) => invoke<Completion>("complete_folder", { typed });
 /** Opens System Settings where memo can be allowed into `folder`. */
 export const openPrivacySettings = (folder: string) => invoke<void>("open_privacy_settings", { folder });

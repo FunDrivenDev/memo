@@ -8,9 +8,9 @@ It uses Tauri 2 (a Rust backend and the system WebView, so no bundled browser) a
 
 By default memo shows Claude Code's plans folder: `plansDirectory` in `settings.local.json` or `settings.json` of the Claude Code configuration (`$CLAUDE_CONFIG_DIR`, else `~/.claude`), else `~/.claude/plans`.
 
-The settings (`⌘,`, or memo › Settings…) replace it with folders of your choice, typed or picked in Finder, and choose the archive folder. They are kept per installation in `~/Library/Application Support/dev.rlvdx.memo/settings.json`; the folders have a button back to the default.
+The settings (`⌘,`, or memo › Settings…) replace it with folders of your choice, typed or picked in Finder, and choose the archive folder. Each change is saved as it is made. A typed folder must exist: for one that does not, memo asks before creating it. The settings are kept per installation in `~/Library/Application Support/dev.rlvdx.memo/settings.json`; the folders have a button back to the default.
 
-Typing a path lists the folders that complete it, read from the disk: `↑` `↓` pick one, `⇥` or a click goes into it, `↵` takes it. memo is not sandboxed, so it reads most folders freely. macOS asks once before letting it into Desktop, Documents, Downloads or iCloud Drive; a folder it refused shows a Grant access… button that opens the right pane of System Settings (Files and Folders for those, Full Disk Access for the rest).
+Typing a path lists the existing folders that complete it, read from the disk: `↑` `↓` pick one, `⇥` or a click goes into it, `↵` takes it. memo is not sandboxed, so it reads most folders freely. macOS asks once before letting it into Desktop, Documents, Downloads or iCloud Drive; a folder it refused shows a Grant access… button that opens the right pane of System Settings (Files and Folders for those, Full Disk Access for the rest).
 
 ## Archive
 

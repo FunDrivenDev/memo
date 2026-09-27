@@ -353,11 +353,7 @@
   <Help folders={library.folders} archive={library.archive} onClose={() => (overlay = null)} />
 {:else if overlay === "settings"}
   <Settings
-    onSaved={(next) => {
-      overlay = null;
-      apply(next);
-      show("Saved the settings");
-    }}
+    onSaved={apply}
     onError={(m) => show(m, true)}
     onClose={() => (overlay = null)}
   />
