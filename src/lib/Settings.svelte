@@ -166,8 +166,8 @@
       </div>
       <button class="link" disabled={!custom} onclick={() => save(null)}>Use Claude Code's plans folder</button>
       <p class="hint">
-        Typing a path lists the existing folders it can complete: <kbd>↑</kbd> <kbd>↓</kbd> pick, <kbd>⇥</kbd> goes
-        in.
+        Typing a path lists the existing folders it can complete: <kbd>↑</kbd> <kbd>↓</kbd> pick, <kbd>⌘↑</kbd>
+        <kbd>⌘↓</kbd> the first or last, <kbd>⇥</kbd> goes in.
       </p>
 
       <h4>Archive</h4>

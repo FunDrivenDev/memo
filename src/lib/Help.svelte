@@ -5,20 +5,19 @@
   let { folders, archive, onClose }: { folders: Folder[]; archive: string; onClose: () => void } = $props();
 
   const keys: [string, string][] = [
-    ["⌘K  /", "Command palette: search titles and content"],
-    ["j  k  ↓  ↑", "Next or previous note"],
+    ["⌘K", "Command palette: search titles and content"],
+    ["↓  ↑", "Next or previous note; while reading, next or previous paragraph"],
+    ["⌘↑  ⌘↓", "First or last note; while reading, first or last paragraph"],
+    ["↵  esc", "Read the note, skipping headings; back to the list"],
     ["⇥  ⇧⇥", "Next or previous folder"],
-    ["g  G", "First or last note"],
     ["space  ⇧space", "Page down or up in the note"],
-    ["J  K", "Scroll the note"],
-    ["s", "Start a Claude Code session from the note"],
+    ["c", "Start a Claude Code session from the note"],
     ["a", "Archive the note; in the archive, restore it"],
     ["u", "Undo the archive, restore or trash, while its message shows"],
-    ["⇧A", "Switch between the notes and the archive"],
-    ["t  ⌫", "Move the note to the Trash"],
+    ["t", "Move the note to the Trash"],
     ["e", "Open the note in the default editor"],
     ["o", "Reveal the note in Finder"],
-    ["r", "Reload"],
+    ["⌘R", "Reload"],
     ["⌘,", "Settings: folders and archive"],
     ["?", "This help"],
   ];

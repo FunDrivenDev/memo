@@ -13,6 +13,7 @@
     notes,
     counts,
     selectedId,
+    active,
     onSelect,
     onPane,
     onPalette,
@@ -23,6 +24,8 @@
     notes: Note[];
     counts: Record<Pane, number>;
     selectedId: string | null;
+    /** Whether the keys move through the list, rather than through the note. */
+    active: boolean;
     onSelect: (id: string) => void;
     onPane: (pane: Pane) => void;
     onPalette: () => void;
@@ -42,13 +45,13 @@
   });
 </script>
 
-<aside class:archive={pane === "archive"}>
+<aside class:archive={pane === "archive"} class:idle={!active}>
   <header data-tauri-drag-region>
     <button class="search" onclick={onPalette} title="Command palette">
       <span>{pane === "archive" ? "Search the archive…" : "Search notes…"}</span>
       <kbd>⌘K</kbd>
     </button>
-    <div class="panes" role="tablist" title="⇧A switches">
+    <div class="panes" role="tablist">
       {#each [["notes", "Notes"], ["archive", "Archive"]] as const as [id, label] (id)}
         <button role="tab" aria-selected={pane === id} class:active={pane === id} onclick={() => onPane(id)}>
           {label} <span class="count">{counts[id]}</span>
@@ -196,6 +199,10 @@
     background: var(--base);
     border-color: var(--surface0);
     box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .idle .card.selected {
+    box-shadow: inset 3px 0 0 var(--surface1);
   }
 
   .title {

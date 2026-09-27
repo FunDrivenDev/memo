@@ -3,6 +3,7 @@
   import * as api from "./lib/api";
   import type { Library, Moved, Note } from "./lib/api";
   import Help from "./lib/Help.svelte";
+  import { listStep } from "./lib/keys";
   import NoteView from "./lib/NoteView.svelte";
   import Palette, { type Command } from "./lib/Palette.svelte";
   import SessionDialog from "./lib/SessionDialog.svelte";
@@ -29,6 +30,8 @@
   /** The selection of the pane not shown, restored when switching back. */
   let otherId: string | null = null;
   let focusLine = $state<number | null>(null);
+  /** Whether the keys move through the items of the note rather than through the list: `↵` in, `Esc` out. */
+  let reading = $state(false);
   let overlay = $state<Overlay | null>(null);
   /** Whether the palette searches the archive; Tab switches it. */
   let paletteArchive = $state(false);
@@ -82,7 +85,25 @@
     return () => unlisten.forEach((u) => void u.then((stop) => stop()));
   });
 
+  // Reading ends when another note shows, whatever changed the selection.
+  $effect(() => {
+    void selectedId;
+    reading = false;
+  });
+
+  function startReading() {
+    if (!selected) return;
+    reading = true;
+    view?.startReading();
+  }
+
+  function stopReading() {
+    reading = false;
+    view?.stopReading();
+  }
+
   function select(id: string | null, line: number | null = null) {
+    stopReading();
     focusLine = line;
     selectedId = id;
   }
@@ -92,13 +113,6 @@
     [selectedId, otherId] = [otherId, selectedId];
     pane = next;
     if (!ordered.some((n) => n.id === selectedId)) selectedId = ordered[0]?.id ?? null;
-  }
-
-  function move(delta: number) {
-    if (!ordered.length) return;
-    const i = ordered.findIndex((n) => n.id === selectedId);
-    const next = i < 0 ? 0 : Math.max(0, Math.min(ordered.length - 1, i + delta));
-    select(ordered[next]?.id ?? null);
   }
 
   /** Jumps to the first note of the next (or previous) folder holding any. */
@@ -196,7 +210,7 @@
   const revealNote = withNote((n) => api.reveal(n.id).catch((e) => show(String(e), true)));
 
   const commands: Command[] = $derived([
-    { id: "session", label: "Start a Claude Code session", keys: "s", run: withNote(() => (overlay = "session")) },
+    { id: "session", label: "Start a Claude Code session", keys: "c", run: withNote(() => (overlay = "session")) },
     {
       id: "archive",
       label: pane === "archive" ? "Restore note from the archive" : "Archive note",
@@ -206,19 +220,18 @@
     {
       id: "pane",
       label: pane === "archive" ? "Show the notes" : "Show the archive",
-      keys: "⇧A",
       run: () => showPane(pane === "archive" ? "notes" : "archive"),
     },
     { id: "trash", label: "Move note to the Trash", keys: "t", run: withNote(trash) },
     { id: "edit", label: "Open in editor", keys: "e", run: edit },
     { id: "reveal", label: "Reveal in Finder", keys: "o", run: revealNote },
-    { id: "reload", label: "Reload", keys: "r", run: reload },
+    { id: "reload", label: "Reload", keys: "⌘R", run: reload },
     { id: "settings", label: "Settings: folders and archive", keys: "⌘,", run: () => (overlay = "settings") },
     { id: "help", label: "Keyboard shortcuts", keys: "?", run: () => (overlay = "help") },
   ]);
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.metaKey && (event.key === "k" || event.key === "p")) {
+    if (event.metaKey && event.key === "k") {
       event.preventDefault();
       if (overlay === "palette") overlay = null;
       else openPalette();
@@ -236,40 +249,35 @@
       return;
     }
     const target = event.target as HTMLElement;
-    if (overlay || event.metaKey || event.altKey || target.closest("input, textarea")) return;
+    // A dialog's Escape has closed it by the time this runs, or will just after.
+    if (overlay || event.defaultPrevented || event.ctrlKey || event.altKey || target.closest("input, textarea")) return;
 
-    const key = event.ctrlKey ? `C-${event.key}` : event.key;
+    const i = reading ? null : listStep(event, ordered.findIndex((n) => n.id === selectedId), ordered.length);
+    if (reading ? view?.step(event) : i !== null) {
+      event.preventDefault();
+      if (i !== null) select(ordered[i]?.id ?? null);
+      return;
+    }
+
+    // One key per action: ⌘ is spelt out, ⇧ only in the character it gives (`?`, `A`), or in Tab and space.
+    const key = event.metaKey ? `⌘${event.key}` : event.key;
     const actions: Record<string, () => void> = {
-      j: () => move(1),
-      ArrowDown: () => move(1),
-      k: () => move(-1),
-      ArrowUp: () => move(-1),
-      g: () => select(ordered[0]?.id ?? null),
-      Home: () => select(ordered[0]?.id ?? null),
-      G: () => select(ordered.at(-1)?.id ?? null),
-      End: () => select(ordered.at(-1)?.id ?? null),
       Tab: () => moveFolder(event.shiftKey ? -1 : 1),
-      " ": () => view?.scroll(event.shiftKey ? -1 : 1, "page"),
-      PageDown: () => view?.scroll(1, "page"),
-      PageUp: () => view?.scroll(-1, "page"),
-      "C-d": () => view?.scroll(0.5, "page"),
-      "C-u": () => view?.scroll(-0.5, "page"),
-      J: () => view?.scroll(120),
-      K: () => view?.scroll(-120),
-      "/": openPalette,
-      ":": openPalette,
+      " ": () => view?.scroll(event.shiftKey ? -1 : 1),
       "?": () => (overlay = "help"),
-      r: reload,
-      s: withNote(() => (overlay = "session")),
+      c: withNote(() => (overlay = "session")),
       a: withNote(archiveOrRestore),
-      A: () => showPane(pane === "archive" ? "notes" : "archive"),
       u: undo,
       t: withNote(trash),
-      Backspace: withNote(trash),
       e: edit,
       o: revealNote,
     };
-    const action = actions[key];
+    const noteKeys: Record<string, () => void> = reading
+      ? {
+          Escape: stopReading,
+        }
+      : { Enter: startReading };
+    const action = noteKeys[key] ?? actions[key];
     if (action) {
       event.preventDefault();
       action();
@@ -286,6 +294,7 @@
     notes={ordered}
     counts={{ notes: notes.length, archive: archived.length }}
     {selectedId}
+    active={!reading}
     onSelect={(id) => select(id)}
     onPane={showPane}
     onPalette={openPalette}
@@ -305,7 +314,7 @@
       {#if pane === "archive"}
         <h1>The archive is empty</h1>
         <p>
-          <kbd>a</kbd> on a note moves it to <code>{library.archive}</code>. <kbd>⇧A</kbd> goes back to the notes.
+          <kbd>a</kbd> on a note moves it to <code>{library.archive}</code>. The Notes tab above goes back to them.
         </p>
       {:else if !library.folders.length}
         <h1>No folders found</h1>

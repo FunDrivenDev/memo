@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import * as api from "./api";
   import type { Note } from "./api";
+  import { listStep } from "./keys";
   import { reveal } from "./scroll";
   import { age, clock, longDate } from "./time.svelte";
 
@@ -26,6 +27,8 @@
   let scroller: HTMLElement | undefined = $state();
   let article: HTMLElement | undefined = $state();
   let shownId = "";
+  /** The item under the reading cursor, if reading. */
+  let current: HTMLElement | null = null;
 
   // Rerender when the note or its file changes; keep the scroll position on a mere edit.
   $effect(() => {
@@ -39,6 +42,10 @@
         html = rendered.html;
         words = rendered.words;
         await tick();
+        // A mere edit keeps the cursor on the same item, when it is still there.
+        const pos = shownId === id ? current?.dataset.sourcepos : undefined;
+        current = null;
+        if (pos) mark(article?.querySelector<HTMLElement>(`[data-sourcepos="${pos}"]`) ?? null, false);
         if (line !== null) scrollToLine(line);
         else if (shownId !== id) scroller?.scrollTo({ top: 0 });
         shownId = id;
@@ -69,13 +76,45 @@
     best.classList.add("flash");
   }
 
-  /** Scrolls the note by `amount` pixels or pages, or to one end. */
-  export function scroll(amount: number, unit: "px" | "page" = "px") {
-    scroller?.scrollBy({ top: unit === "page" ? amount * scroller.clientHeight * 0.85 : amount });
+  /** Scrolls the note by `pages` pages. */
+  export function scroll(pages: number) {
+    scroller?.scrollBy({ top: pages * scroller.clientHeight * 0.85 });
   }
 
-  export function scrollToEnd(end: "top" | "bottom") {
-    scroller?.scrollTo({ top: end === "top" ? 0 : scroller.scrollHeight });
+  /** The blocks the reading cursor steps through: paragraphs, list items, code and tables, not headings. */
+  function items(): HTMLElement[] {
+    const all = article?.querySelectorAll<HTMLElement>(":is(p, li, pre, table, dt, dd)[data-sourcepos]") ?? [];
+    // A loose list wraps its items' text in paragraphs: the item itself is the stop.
+    return [...all].filter((el) => !(el.tagName === "P" && el.parentElement?.matches("li, dd")));
+  }
+
+  function mark(el: HTMLElement | null, show = true) {
+    current?.classList.remove("current");
+    current = el;
+    if (!el || !scroller) return;
+    el.classList.add("current");
+    // The item sits mid-height, bar the ends of the note; one taller than the view shows from its start.
+    if (show) reveal(scroller, el, el.offsetHeight > scroller.clientHeight * 0.8 ? "start" : "center");
+  }
+
+  /** Puts the reading cursor on the first item in view. */
+  export function startReading() {
+    const top = (scroller?.getBoundingClientRect().top ?? 0) + 40;
+    const all = items();
+    mark(all.find((el) => el.getBoundingClientRect().bottom > top) ?? all[0] ?? null);
+  }
+
+  export function stopReading() {
+    mark(null);
+  }
+
+  /** Moves the reading cursor for an arrow key, as in any list; false for any other key. */
+  export function step(event: KeyboardEvent): boolean {
+    const all = items();
+    const next = listStep(event, current ? all.indexOf(current) : -1, all.length);
+    if (next === null) return false;
+    mark(all[next] ?? null);
+    return true;
   }
 
   function onClick(event: MouseEvent) {
@@ -405,6 +444,12 @@
     color: var(--subtext);
     border-top: 1px solid var(--surface0);
     margin-top: 2em;
+  }
+
+  .prose :global(.current) {
+    border-radius: 4px;
+    outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline-offset: 5px;
   }
 
   .prose :global(.flash) {

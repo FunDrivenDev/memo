@@ -4,7 +4,8 @@
   export interface Command {
     id: string;
     label: string;
-    keys: string;
+    /** The key that runs it outside the palette, if any. */
+    keys?: string;
     run: () => void;
   }
 </script>
@@ -13,6 +14,7 @@
   import * as api from "./api";
   import type { Hit } from "./api";
   import Highlight from "./Highlight.svelte";
+  import { listStep } from "./keys";
   import { reveal } from "./scroll";
   import { age, clock } from "./time.svelte";
 
@@ -98,12 +100,10 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    const next = event.key === "ArrowDown" || (event.ctrlKey && (event.key === "n" || event.key === "j"));
-    const prev = event.key === "ArrowUp" || (event.ctrlKey && (event.key === "p" || event.key === "k"));
-    if (next || prev) {
+    const next = listStep(event, active, items.length);
+    if (next !== null) {
       event.preventDefault();
-      const n = items.length;
-      if (n) active = (active + (next ? 1 : n - 1)) % n;
+      active = next;
     } else if (event.key === "Enter") {
       event.preventDefault();
       choose(items[active]);
@@ -143,7 +143,7 @@
           >
             {#if item.kind === "command"}
               <span class="title">{item.command.label}</span>
-              <kbd>{item.command.keys}</kbd>
+              {#if item.command.keys}<kbd>{item.command.keys}</kbd>{/if}
             {:else}
               <span class="title"><Highlight text={item.note.title} indices={item.hit?.title_indices} /></span>
               <span class="meta">{item.note.folder} · {age(item.note.modified, clock.now)}</span>
@@ -171,6 +171,7 @@
     </ul>
     <footer>
       <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
+      <span><kbd>⌘↑</kbd><kbd>⌘↓</kbd> first, last</span>
       <span><kbd>↵</kbd> open</span>
       <span><kbd>⇥</kbd> {archive ? "notes" : "archive"}</span>
       <span><kbd>&gt;</kbd> commands</span>

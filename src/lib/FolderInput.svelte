@@ -1,9 +1,10 @@
 <script lang="ts">
   import * as api from "./api";
   import type { Completion } from "./api";
+  import { listStep } from "./keys";
 
-  // A text field for a folder path, completed from the disk as it is typed: ↑ ↓ pick a folder, ⇥ or a click
-  // takes it and lists its subfolders, ↵ takes it as is, Escape closes the list.
+  // A text field for a folder path, completed from the disk as it is typed: ↑ ↓ pick a folder, ⌘↑ ⌘↓ the first or
+  // last, ⇥ or a click takes it and lists its subfolders, ↵ takes it as is, Escape closes the list.
   let { value = $bindable(""), input = $bindable(), placeholder = "" }: {
     value?: string;
     input?: HTMLInputElement;
@@ -46,8 +47,8 @@
   function onKeydown(event: KeyboardEvent) {
     if (!open) return;
     const n = options.length;
-    if (event.key === "ArrowDown" && n) highlighted = (highlighted + 1) % n;
-    else if (event.key === "ArrowUp" && n) highlighted = highlighted <= 0 ? n - 1 : highlighted - 1;
+    const next = listStep(event, highlighted, n);
+    if (next !== null) highlighted = next;
     else if (event.key === "Tab" && n && !event.shiftKey) take(`${options[Math.max(highlighted, 0)]}/`);
     else if (event.key === "Enter" && highlighted >= 0 && !event.metaKey) take(options[highlighted] ?? value);
     else if (event.key === "Escape") closed = true;
