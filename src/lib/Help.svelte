@@ -2,7 +2,7 @@
   import type { Folder } from "./api";
   import Modal from "./Modal.svelte";
 
-  let { claudeDir, folders, onClose }: { claudeDir: string; folders: Folder[]; onClose: () => void } = $props();
+  let { folders, archive, onClose }: { folders: Folder[]; archive: string; onClose: () => void } = $props();
 
   const keys: [string, string][] = [
     ["⌘K  /", "Command palette: search titles and content"],
@@ -12,11 +12,14 @@
     ["space  ⇧space", "Page down or up in the note"],
     ["J  K", "Scroll the note"],
     ["s", "Start a Claude Code session from the note"],
-    ["a", "Archive the note"],
+    ["a", "Archive the note; in the archive, restore it"],
+    ["u", "Undo the archive or restore, while its message shows"],
+    ["⇧A", "Switch between the notes and the archive"],
     ["d  ⌫", "Move the note to the Trash"],
     ["e", "Open the note in the default editor"],
     ["o", "Reveal the note in Finder"],
     ["r", "Reload"],
+    ["⌘,", "Settings: folders and archive"],
     ["?", "This help"],
   ];
 </script>
@@ -33,13 +36,13 @@
   <h4>Search</h4>
   <p>
     Every word must match, fuzzily, in the title or on one line. As in fzf: <code>'word</code> matches exactly,
-    <code>^word</code> at the start, <code>word$</code> at the end, <code>!word</code> excludes.
+    <code>^word</code> at the start, <code>word$</code> at the end, <code>!word</code> excludes. It covers the notes or
+    the archive, not both: <kbd>⇥</kbd> switches.
   </p>
   <h4>Folders</h4>
   <p>
-    Read from <code>plansDirectory</code> in <code>{claudeDir}/settings.json</code> and the directories listed in the
-    code blocks of <code>{claudeDir}/CLAUDE.md</code>. Archived notes move to <code>archive/&lt;folder&gt;</code>
-    beside them.
+    Claude Code's plans folder unless others are chosen in the settings (<kbd>⌘,</kbd>). Archived notes move to
+    <code>{archive}/&lt;folder&gt;</code>.
   </p>
   <ul>
     {#each folders as folder (folder.path)}

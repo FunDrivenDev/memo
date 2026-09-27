@@ -1,32 +1,54 @@
 <script lang="ts">
   import * as api from "./lib/api";
-  import type { Library, Note } from "./lib/api";
+  import type { Library, Moved, Note } from "./lib/api";
   import Confirm from "./lib/Confirm.svelte";
   import Help from "./lib/Help.svelte";
   import NoteView from "./lib/NoteView.svelte";
   import Palette, { type Command } from "./lib/Palette.svelte";
   import SessionDialog from "./lib/SessionDialog.svelte";
-  import Sidebar from "./lib/Sidebar.svelte";
+  import Settings from "./lib/Settings.svelte";
+  import Sidebar, { type Pane } from "./lib/Sidebar.svelte";
 
-  type Overlay = "palette" | "trash" | "session" | "help";
+  type Overlay = "palette" | "trash" | "session" | "help" | "settings";
 
-  let library = $state<Library>({ claude_dir: "", folders: [], notes: [] });
+  /** How long an archive or restore can be undone with `u`. */
+  const UNDO_MS = 6000;
+
+  let library = $state<Library>({
+    claude_dir: "",
+    custom: false,
+    folders: [],
+    notes: [],
+    archive: "",
+    archive_folders: [],
+    archived: [],
+  });
   let loaded = $state(false);
+  let pane = $state<Pane>("notes");
   let selectedId = $state<string | null>(null);
+  /** The selection of the pane not shown, restored when switching back. */
+  let otherId: string | null = null;
   let focusLine = $state<number | null>(null);
   let overlay = $state<Overlay | null>(null);
-  let toast = $state<{ text: string; error: boolean } | null>(null);
+  /** Whether the palette searches the archive; Tab switches it. */
+  let paletteArchive = $state(false);
+  let toast = $state<{ text: string; error: boolean; undo: boolean } | null>(null);
   let view: NoteView | undefined = $state();
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-  /** The notes in sidebar order: by folder, then most recent first. */
-  const ordered = $derived(library.folders.flatMap((f) => library.notes.filter((n) => n.folder === f.name)));
+  const folders = $derived(pane === "archive" ? library.archive_folders : library.folders);
+  /** The notes of the pane in sidebar order: by folder, then most recent first. */
+  const ordered = $derived.by(() => {
+    const notes = pane === "archive" ? library.archived : library.notes;
+    return folders.flatMap((f) => notes.filter((n) => n.folder === f.name));
+  });
   const selected = $derived(ordered.find((n) => n.id === selectedId) ?? null);
 
-  function show(text: string, error = false) {
-    toast = { text, error };
+  /** Shows a message; with `undo`, `u` moves the note back while it shows. */
+  function show(text: string, error = false, undo = false) {
+    toast = { text, error, undo };
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toast = null), error ? 6000 : 3000);
+    toastTimer = setTimeout(() => (toast = null), undo ? UNDO_MS : error ? 6000 : 3000);
   }
 
   /** Takes a new library, keeping the selection or, when its note left, the note now in its place. */
@@ -48,13 +70,20 @@
 
   $effect(() => {
     reload();
-    const unlisten = api.onLibraryChanged(reload);
-    return () => void unlisten.then((stop) => stop());
+    const unlisten = [api.onLibraryChanged(reload), api.onOpenSettings(() => (overlay = "settings"))];
+    return () => unlisten.forEach((u) => void u.then((stop) => stop()));
   });
 
   function select(id: string | null, line: number | null = null) {
     focusLine = line;
     selectedId = id;
+  }
+
+  function showPane(next: Pane) {
+    if (next === pane) return;
+    [selectedId, otherId] = [otherId, selectedId];
+    pane = next;
+    if (!ordered.some((n) => n.id === selectedId)) selectedId = ordered[0]?.id ?? null;
   }
 
   function move(delta: number) {
@@ -66,7 +95,7 @@
 
   /** Jumps to the first note of the next (or previous) folder holding any. */
   function moveFolder(delta: 1 | -1) {
-    const withNotes = library.folders.filter((f) => ordered.some((n) => n.folder === f.name));
+    const withNotes = folders.filter((f) => ordered.some((n) => n.folder === f.name));
     if (!withNotes.length) return;
     const current = withNotes.findIndex((f) => f.name === selected?.folder);
     const target = withNotes[(current + delta + withNotes.length) % withNotes.length];
@@ -74,15 +103,32 @@
   }
 
   function openNote(id: string): boolean {
-    if (!ordered.some((n) => n.id === id)) return false;
+    if (library.notes.some((n) => n.id === id)) showPane("notes");
+    else if (library.archived.some((n) => n.id === id)) showPane("archive");
+    else return false;
     select(id);
     return true;
   }
 
-  async function archive(note: Note) {
+  /** Archives a note of the folders, or restores one of the archive; `u` undoes it for a while. */
+  async function archiveOrRestore(note: Note) {
     try {
-      apply(await api.archive(note.id));
-      show(`Archived “${note.title}”`);
+      const restoring = pane === "archive";
+      apply((restoring ? await api.restore(note.id) : await api.archive(note.id)).library);
+      show(restoring ? `Restored “${note.title}” to ${note.folder}` : `Archived “${note.title}”`, false, true);
+    } catch (e) {
+      show(String(e), true);
+    }
+  }
+
+  async function undo() {
+    if (!toast?.undo) return;
+    toast = null;
+    try {
+      const moved: Moved = await api.undo();
+      apply(moved.library);
+      openNote(moved.id);
+      show("Undone");
     } catch (e) {
       show(String(e), true);
     }
@@ -104,30 +150,47 @@
     };
   }
 
-  const commands: Command[] = [
+  function openPalette() {
+    paletteArchive = pane === "archive";
+    overlay = "palette";
+  }
+
+  const edit = withNote((n) => api.edit(n.id).catch((e) => show(String(e), true)));
+  const revealNote = withNote((n) => api.reveal(n.id).catch((e) => show(String(e), true)));
+
+  const commands: Command[] = $derived([
     { id: "session", label: "Start a Claude Code session", keys: "s", run: withNote(() => (overlay = "session")) },
-    { id: "archive", label: "Archive note", keys: "a", run: withNote(archive) },
+    {
+      id: "archive",
+      label: pane === "archive" ? "Restore note from the archive" : "Archive note",
+      keys: "a",
+      run: withNote(archiveOrRestore),
+    },
+    {
+      id: "pane",
+      label: pane === "archive" ? "Show the notes" : "Show the archive",
+      keys: "⇧A",
+      run: () => showPane(pane === "archive" ? "notes" : "archive"),
+    },
     { id: "trash", label: "Move note to the Trash", keys: "d", run: withNote(() => (overlay = "trash")) },
-    {
-      id: "edit",
-      label: "Open in editor",
-      keys: "e",
-      run: withNote((n) => api.edit(n.id).catch((e) => show(String(e), true))),
-    },
-    {
-      id: "reveal",
-      label: "Reveal in Finder",
-      keys: "o",
-      run: withNote((n) => api.reveal(n.id).catch((e) => show(String(e), true))),
-    },
+    { id: "edit", label: "Open in editor", keys: "e", run: edit },
+    { id: "reveal", label: "Reveal in Finder", keys: "o", run: revealNote },
     { id: "reload", label: "Reload", keys: "r", run: reload },
+    { id: "settings", label: "Settings: folders and archive", keys: "⌘,", run: () => (overlay = "settings") },
     { id: "help", label: "Keyboard shortcuts", keys: "?", run: () => (overlay = "help") },
-  ];
+  ]);
 
   function onKeydown(event: KeyboardEvent) {
     if (event.metaKey && (event.key === "k" || event.key === "p")) {
       event.preventDefault();
-      overlay = overlay === "palette" ? null : "palette";
+      if (overlay === "palette") overlay = null;
+      else openPalette();
+      return;
+    }
+    // The Settings… menu item normally takes ⌘, first; this covers a missing menu.
+    if (event.metaKey && event.key === ",") {
+      event.preventDefault();
+      overlay = "settings";
       return;
     }
     if (event.metaKey && event.key === "r") {
@@ -156,16 +219,18 @@
       "C-u": () => view?.scroll(-0.5, "page"),
       J: () => view?.scroll(120),
       K: () => view?.scroll(-120),
-      "/": () => (overlay = "palette"),
-      ":": () => (overlay = "palette"),
+      "/": openPalette,
+      ":": openPalette,
       "?": () => (overlay = "help"),
       r: reload,
       s: withNote(() => (overlay = "session")),
-      a: withNote(archive),
+      a: withNote(archiveOrRestore),
+      A: () => showPane(pane === "archive" ? "notes" : "archive"),
+      u: undo,
       d: withNote(() => (overlay = "trash")),
       Backspace: withNote(() => (overlay = "trash")),
-      e: commands.find((c) => c.id === "edit")!.run,
-      o: commands.find((c) => c.id === "reveal")!.run,
+      e: edit,
+      o: revealNote,
     };
     const action = actions[key];
     if (action) {
@@ -179,29 +244,43 @@
 
 <div class="layout">
   <Sidebar
-    folders={library.folders}
+    {pane}
+    {folders}
     notes={ordered}
+    counts={{ notes: library.notes.length, archive: library.archived.length }}
     {selectedId}
     onSelect={(id) => select(id)}
-    onPalette={() => (overlay = "palette")}
+    onPane={showPane}
+    onPalette={openPalette}
   />
 
   {#if selected}
     <NoteView
       bind:this={view}
       note={selected}
+      archived={pane === "archive"}
       {focusLine}
       onOpenNote={openNote}
       onError={(m) => show(m, true)}
     />
   {:else if loaded}
     <div class="blank" data-tauri-drag-region>
-      {#if !library.folders.length}
+      {#if pane === "archive"}
+        <h1>The archive is empty</h1>
+        <p>
+          <kbd>a</kbd> on a note moves it to <code>{library.archive}</code>. <kbd>⇧A</kbd> goes back to the notes.
+        </p>
+      {:else if !library.folders.length}
         <h1>No folders found</h1>
         <p>
-          memo shows the folders named by <code>plansDirectory</code> in
-          <code>{library.claude_dir}/settings.json</code> and the directories listed in the code blocks of
-          <code>{library.claude_dir}/CLAUDE.md</code>. None of them exists yet.
+          {#if library.custom}
+            None of the folders chosen in the settings exists.
+          {:else}
+            memo shows Claude Code's plans folder: <code>plansDirectory</code> in
+            <code>{library.claude_dir}/settings.json</code>, else <code>{library.claude_dir}/plans</code>. It does not
+            exist yet.
+          {/if}
+          Press <kbd>⌘,</kbd> to choose the folders.
         </p>
       {:else}
         <h1>Nothing to read</h1>
@@ -214,10 +293,13 @@
 {#if overlay === "palette"}
   <Palette
     notes={library.notes}
+    archived={library.archived}
+    bind:archive={paletteArchive}
     {commands}
     onOpen={(id, line) => {
       overlay = null;
-      select(id, line);
+      openNote(id);
+      focusLine = line;
     }}
     onClose={() => (overlay = null)}
   />
@@ -240,11 +322,29 @@
     onClose={() => (overlay = null)}
   />
 {:else if overlay === "help"}
-  <Help claudeDir={library.claude_dir} folders={library.folders} onClose={() => (overlay = null)} />
+  <Help folders={library.folders} archive={library.archive} onClose={() => (overlay = null)} />
+{:else if overlay === "settings"}
+  <Settings
+    onSaved={(next) => {
+      overlay = null;
+      apply(next);
+      show("Saved the settings");
+    }}
+    onError={(m) => show(m, true)}
+    onClose={() => (overlay = null)}
+  />
 {/if}
 
 {#if toast}
-  <div class="toast" class:error={toast.error} role="status">{toast.text}</div>
+  {#key toast}
+  <div class="toast" class:error={toast.error} role="status">
+    <span>{toast.text}</span>
+    {#if toast.undo}
+      <button class="undo" onclick={undo}>Undo <kbd>u</kbd></button>
+      <span class="countdown" style:animation-duration={`${UNDO_MS}ms`}></span>
+    {/if}
+  </div>
+  {/key}
 {/if}
 
 <style>
@@ -287,6 +387,47 @@
     background: var(--mantle);
     box-shadow: var(--shadow);
     font-size: 13px;
+  }
+
+  .toast {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    overflow: hidden;
+    animation: rise 160ms ease-out;
+  }
+
+  .undo {
+    padding: 2px 8px;
+    border: 1px solid var(--surface0);
+    border-radius: 6px;
+    background: var(--base);
+    cursor: pointer;
+  }
+
+  /* Shrinks while the undo stays possible. */
+  .countdown {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    width: 100%;
+    background: var(--accent);
+    transform-origin: left;
+    animation: countdown linear forwards;
+  }
+
+  @keyframes countdown {
+    to {
+      transform: scaleX(0);
+    }
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 8px);
+    }
   }
 
   .toast.error {

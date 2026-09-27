@@ -17,13 +17,19 @@
   import { age, clock } from "./time.svelte";
 
   let {
-    notes,
+    notes: current,
+    archived,
+    archive = $bindable(),
     commands,
     onOpen,
     onClose,
   }: {
-    /** Every note, most recent first. */
+    /** Every note of the folders, most recent first. */
     notes: Note[];
+    /** Every archived note, most recent first. */
+    archived: Note[];
+    /** Whether to search the archive rather than the folders; Tab switches. */
+    archive: boolean;
     commands: Command[];
     onOpen: (id: string, line: number | null) => void;
     onClose: () => void;
@@ -40,6 +46,7 @@
   let list: HTMLElement | undefined = $state();
   let sequence = 0;
 
+  const notes = $derived(archive ? archived : current);
   const byId = $derived(new Map(notes.map((n) => [n.id, n])));
 
   const items: Item[] = $derived.by(() => {
@@ -59,11 +66,12 @@
   // Search as the query changes; a slower, older answer never replaces a newer one.
   $effect(() => {
     const q = query;
+    const inArchive = archive;
     active = 0;
     if (q.startsWith(">") || !q.trim()) return;
     const mine = ++sequence;
     const timer = setTimeout(() => {
-      api.search(q).then((result) => {
+      api.search(q, inArchive).then((result) => {
         if (mine === sequence) hits = result;
       });
     }, 60);
@@ -99,6 +107,9 @@
     } else if (event.key === "Enter") {
       event.preventDefault();
       choose(items[active]);
+    } else if (event.key === "Tab") {
+      event.preventDefault();
+      archive = !archive;
     } else if (event.key === "Escape") {
       event.preventDefault();
       onClose();
@@ -110,14 +121,17 @@
 <div class="backdrop" onclick={onClose}>
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="palette" onclick={(e) => e.stopPropagation()}>
-    <input
-      bind:this={input}
-      bind:value={query}
-      onkeydown={onKeydown}
-      placeholder="Search titles and content — type > for commands"
-      spellcheck="false"
-      autocomplete="off"
-    />
+    <div class="field">
+      {#if archive}<span class="scope">Archive</span>{/if}
+      <input
+        bind:this={input}
+        bind:value={query}
+        onkeydown={onKeydown}
+        placeholder={archive ? "Search the archive" : "Search titles and content — type > for commands"}
+        spellcheck="false"
+        autocomplete="off"
+      />
+    </div>
     <ul bind:this={list}>
       {#each items as item, i (item.kind === "note" ? item.note.id : item.command.id)}
         <li>
@@ -144,12 +158,21 @@
           </button>
         </li>
       {:else}
-        <li class="none">{query.startsWith(">") ? "No such command." : "No match."}</li>
+        <li class="none">
+          {#if query.startsWith(">")}
+            No such command.
+          {:else if archive}
+            No match in the archive. <kbd>⇥</kbd> Search the notes
+          {:else}
+            No match. Maybe it is archived? <kbd>⇥</kbd> Search the archive
+          {/if}
+        </li>
       {/each}
     </ul>
     <footer>
       <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
       <span><kbd>↵</kbd> open</span>
+      <span><kbd>⇥</kbd> {archive ? "notes" : "archive"}</span>
       <span><kbd>&gt;</kbd> commands</span>
       <span><kbd>esc</kbd> close</span>
     </footer>
@@ -180,9 +203,25 @@
     overflow: hidden;
   }
 
-  input {
-    border: 0;
+  .field {
+    display: flex;
+    align-items: center;
     border-bottom: 1px solid var(--surface0);
+  }
+
+  .scope {
+    margin-left: 14px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--yellow) 20%, transparent);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  input {
+    flex: 1;
+    border: 0;
     border-radius: 0;
     padding: 14px 16px;
     font-size: 16px;

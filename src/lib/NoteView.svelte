@@ -7,11 +7,14 @@
 
   let {
     note,
+    archived = false,
     focusLine,
     onOpenNote,
     onError,
   }: {
     note: Note;
+    /** Whether the note is in the archive. */
+    archived?: boolean;
     /** A source line to scroll to once rendered, from a search hit. */
     focusLine: number | null;
     onOpenNote: (id: string) => boolean;
@@ -103,6 +106,7 @@
 
 <main bind:this={scroller}>
   <header data-tauri-drag-region>
+    {#if archived}<span class="archived">Archived</span>{/if}
     <span class="folder">{note.folder}</span>
     <span class="file" title={note.id}>{note.file_name}</span>
     <span class="meta" title={longDate(note.modified)}>
@@ -135,6 +139,14 @@
     background: color-mix(in srgb, var(--base) 85%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
+  }
+
+  .archived {
+    padding: 0 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--yellow) 20%, transparent);
+    color: var(--text);
+    font-weight: 600;
   }
 
   .folder {
