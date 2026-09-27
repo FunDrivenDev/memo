@@ -40,13 +40,13 @@ Every search word must match fuzzily, in the title or on one line; as in fzf, `'
 - Markdown is rendered by comrak without raw HTML, then sanitised by ammonia; the CSP allows only the app's own scripts.
 - Only `http`, `https` and `mailto` links leave the app, and they open in the default browser. Terminal commands go to osascript as arguments and are shell-quoted, never spliced into the script.
 
-## Install without the sources
+## Install
 
 ```sh
-brew install rlvdx/tap/memo
+brew install fundrivendev/tap/memo
 ```
 
-Releases come from the Release workflow, started from the Actions tab or with `gh workflow run release -f version=0.2.0`. Once CI has passed on `main`, it builds the app on macOS, scans it for secrets and home directory paths, then commits the version, tags it and releases it. It then copies the app to the public [rlvdx/homebrew-tap](https://github.com/rlvdx/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The sources stay private. `just publish <version>` does the same from a Mac, as a fallback.
+Releases come from the Release workflow, started from the Actions tab or with `gh workflow run release -f version=0.2.0`. Once CI has passed on `main`, it builds the app on macOS, scans it for secrets and home directory paths, then commits the version, tags it and releases it. It then copies the app to [FunDrivenDev/homebrew-tap](https://github.com/FunDrivenDev/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The version commit, the tag and the cask commit are signed as Fun Driven Stuff <stuff@fundriven.dev>. `just publish <version>` does the same from a Mac, as a fallback, signing with the backup key `~/.ssh/fundriven-stuff-signing`.
 
 The jobs run on GitHub-hosted runners or on Blacksmith, whichever `.github/scripts/route.sh` picks from this month's usage of the two free quotas. Linux jobs belong to Blacksmith and macOS jobs to GitHub, which keeps each cache warm; a job moves only once its home quota passes 85%.
 

@@ -127,14 +127,16 @@ publish version:
     if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then echo "$tag already exists" >&2; exit 1; fi
     ci=$(gh run list --commit "$(git rev-parse HEAD)" --workflow CI --json status,conclusion --jq '.[0] | "\(.status) \(.conclusion)"')
     [[ "$ci" == "completed success" ]] || { echo "CI has not passed on HEAD (${ci:-no run}): wait for it or fix it" >&2; exit 1; }
+    # Sign as the project, with the backup key of Fun Driven Stuff <stuff@fundriven.dev>.
+    as_stuff=(-c user.name="Fun Driven Stuff" -c user.email=stuff@fundriven.dev -c gpg.format=ssh -c user.signingkey="$HOME/.ssh/fundriven-stuff-signing")
     just set-version "$version"
-    git diff --quiet || git commit --quiet -m "Publish $version" {{ manifest }} src-tauri/Cargo.lock
+    git diff --quiet || git "${as_stuff[@]}" commit --quiet --gpg-sign -m "Publish $version" {{ manifest }} src-tauri/Cargo.lock
     tree=$(mktemp -d)
     trap 'git worktree remove --force "$tree"' EXIT
     git worktree add --quiet --detach "$tree" HEAD
     (cd "$tree" && mise trust --quiet && just deps frozen && just build)
     archive=$(cd "$tree" && just package "$version")
-    git tag -a "$tag" -m "memo $version"
+    git "${as_stuff[@]}" tag --sign "$tag" -m "memo $version"
     git push --quiet origin main "$tag"
     gh release create "$tag" --title "memo $version" --generate-notes "$tree/$archive"
 

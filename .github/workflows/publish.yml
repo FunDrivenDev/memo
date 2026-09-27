@@ -1,5 +1,5 @@
-# Pushes a released app to the public Homebrew tap, so `brew install rlvdx/tap/memo`
-# works without access to this repository. The Release workflow calls it; a release
+# Pushes a released app to the Homebrew tap, so `brew install fundrivendev/tap/memo`
+# works. The Release workflow calls it; a release
 # published by hand (`just publish`) starts it. The app is scanned once more first:
 # this is where it goes public.
 
@@ -22,7 +22,7 @@ jobs:
     if: ${{ github.event_name != 'release' || !github.event.release.prerelease }}
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 10
-    # Holds TAP_TOKEN.
+    # Holds TAP_TOKEN and SIGNING_KEY.
     environment: release
     permissions:
       contents: read
@@ -47,10 +47,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - uses: rlvdx/homebrew-tap/.github/actions/publish-cask@0d428fb475d0ddd855155cf44db90fa734c48b27
+      - uses: FunDrivenDev/homebrew-tap/.github/actions/publish-cask@4cadfc0c521cb71d38ea087046501c261e0e8dd5
         with:
           cask: memo
           version: ${{ env.TAG }}
           archive: memo-*-macos-arm64.zip
           definition: packaging/memo.rb
           token: ${{ secrets.TAP_TOKEN }}
+          signing-key: ${{ secrets.SIGNING_KEY }}

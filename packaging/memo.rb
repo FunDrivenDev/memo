@@ -1,13 +1,13 @@
-# The cask the Publish workflow writes into rlvdx/homebrew-tap, with its version and
+# The cask the Publish workflow writes into FunDrivenDev/homebrew-tap, with its version and
 # sha256 filled in.
 cask "memo" do
   version "0.0.0"
   sha256 :no_check
 
-  url "https://github.com/rlvdx/homebrew-tap/releases/download/memo-#{version}/memo-#{version}-macos-arm64.zip"
+  url "https://github.com/FunDrivenDev/homebrew-tap/releases/download/memo-#{version}/memo-#{version}-macos-arm64.zip"
   name "memo"
   desc "Keyboard-driven reader for the plans and reports Claude Code writes"
-  homepage "https://github.com/rlvdx/homebrew-tap"
+  homepage "https://github.com/FunDrivenDev/memo"
 
   depends_on arch: :arm64
   depends_on macos: ">= :ventura"

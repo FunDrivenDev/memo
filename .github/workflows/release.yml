@@ -57,6 +57,8 @@ jobs:
     needs: [preflight, route]
     runs-on: ${{ needs.route.outputs.macos }}
     timeout-minutes: 45
+    # Holds SIGNING_KEY.
+    environment: release
     permissions:
       contents: write
     steps:
@@ -86,16 +88,22 @@ jobs:
 
       - name: Commit, tag and push the version
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git diff --quiet || git commit --quiet -m "Publish $VERSION" src-tauri/Cargo.toml src-tauri/Cargo.lock
-          git tag -a "v$VERSION" -m "memo $VERSION"
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$SIGNING_KEY" > "$key"
+          git config user.name "Fun Driven Stuff"
+          git config user.email "stuff@fundriven.dev"
+          git config gpg.format ssh
+          git config user.signingkey "$key"
+          git diff --quiet || git commit --quiet --gpg-sign -m "Publish $VERSION" src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git tag --sign "v$VERSION" -m "memo $VERSION"
           gh auth setup-git
           # Atomic: if main moved since the run started, neither the commit nor the tag lands.
           git push --atomic origin HEAD:main "v$VERSION"
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
 
       - name: Release the app
         run: gh release create "v$VERSION" --verify-tag --title "memo $VERSION" --generate-notes "$ARCHIVE"
