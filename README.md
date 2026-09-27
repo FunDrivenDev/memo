@@ -31,9 +31,9 @@ Each existing folder becomes a sidebar section. The section lists the `.md` file
 | `space` `⇧space`, `⌃d` `⌃u`, `J` `K` | Scroll the note |
 | `s` | Start a Claude Code session from the note |
 | `a` | Archive the note (in the archive: restore it) |
-| `u` | Undo the archive or restore, while its message shows |
+| `u` | Undo the archive, restore or trash, while its message shows |
 | `⇧A` | Switch between the notes and the archive |
-| `d`, `⌫` | Move to the macOS Trash (after confirmation) |
+| `t`, `⌫` | Move to the macOS Trash, after a 6-second countdown `u` can cancel |
 | `e` | Open in the default editor |
 | `o` | Reveal in Finder |
 | `r`, `⌘R` | Reload |

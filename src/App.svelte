@@ -1,7 +1,7 @@
 <script lang="ts">
+  import { SvelteSet } from "svelte/reactivity";
   import * as api from "./lib/api";
   import type { Library, Moved, Note } from "./lib/api";
-  import Confirm from "./lib/Confirm.svelte";
   import Help from "./lib/Help.svelte";
   import NoteView from "./lib/NoteView.svelte";
   import Palette, { type Command } from "./lib/Palette.svelte";
@@ -9,9 +9,9 @@
   import Settings from "./lib/Settings.svelte";
   import Sidebar, { type Pane } from "./lib/Sidebar.svelte";
 
-  type Overlay = "palette" | "trash" | "session" | "help" | "settings";
+  type Overlay = "palette" | "session" | "help" | "settings";
 
-  /** How long an archive or restore can be undone with `u`. */
+  /** How long an archive, restore or trash can be undone with `u`. */
   const UNDO_MS = 6000;
 
   let library = $state<Library>({
@@ -32,20 +32,28 @@
   let overlay = $state<Overlay | null>(null);
   /** Whether the palette searches the archive; Tab switches it. */
   let paletteArchive = $state(false);
-  let toast = $state<{ text: string; error: boolean; undo: boolean } | null>(null);
+  let toast = $state<{ text: string; error: boolean; undo: (() => void) | null } | null>(null);
   let view: NoteView | undefined = $state();
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The note trashed on screen only, until its countdown ends or `u` brings it back. */
+  let pendingTrash: { note: Note; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** Notes hidden as trashed: the pending one, and those on their way to the Trash. */
+  const trashing = new SvelteSet<string>();
 
+  const shown = (notes: Note[]) => notes.filter((n) => !trashing.has(n.id));
+  const notes = $derived(shown(library.notes));
+  const archived = $derived(shown(library.archived));
   const folders = $derived(pane === "archive" ? library.archive_folders : library.folders);
   /** The notes of the pane in sidebar order: by folder, then most recent first. */
   const ordered = $derived.by(() => {
-    const notes = pane === "archive" ? library.archived : library.notes;
-    return folders.flatMap((f) => notes.filter((n) => n.folder === f.name));
+    const paneNotes = pane === "archive" ? archived : notes;
+    return folders.flatMap((f) => paneNotes.filter((n) => n.folder === f.name));
   });
   const selected = $derived(ordered.find((n) => n.id === selectedId) ?? null);
 
-  /** Shows a message; with `undo`, `u` moves the note back while it shows. */
-  function show(text: string, error = false, undo = false) {
+  /** Shows a message; with `undo`, `u` runs it while the message shows. A new message ends a pending trash. */
+  function show(text: string, error = false, undo: (() => void) | null = null) {
+    void commitTrash();
     toast = { text, error, undo };
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (toast = null), undo ? UNDO_MS : error ? 6000 : 3000);
@@ -115,15 +123,20 @@
     try {
       const restoring = pane === "archive";
       apply((restoring ? await api.restore(note.id) : await api.archive(note.id)).library);
-      show(restoring ? `Restored “${note.title}” to ${note.folder}` : `Archived “${note.title}”`, false, true);
+      show(restoring ? `Restored “${note.title}” to ${note.folder}` : `Archived “${note.title}”`, false, undoMove);
     } catch (e) {
       show(String(e), true);
     }
   }
 
-  async function undo() {
-    if (!toast?.undo) return;
+  function undo() {
+    const run = toast?.undo;
+    if (!run) return;
     toast = null;
+    run();
+  }
+
+  async function undoMove() {
     try {
       const moved: Moved = await api.undo();
       apply(moved.library);
@@ -134,13 +147,37 @@
     }
   }
 
-  async function trash(note: Note) {
-    overlay = null;
+  /**
+   * Trashes a note on screen at once, and for real when the countdown ends: macOS offers no undo, so `u` cancels it
+   * before it happens.
+   */
+  function trash(note: Note) {
+    const before = ordered.findIndex((n) => n.id === note.id);
+    show(`Moved “${note.title}” to the Trash`, false, () => cancelTrash(note));
+    trashing.add(note.id);
+    pendingTrash = { note, timer: setTimeout(commitTrash, UNDO_MS) };
+    if (selectedId === note.id) select(ordered[Math.min(before, ordered.length - 1)]?.id ?? null);
+  }
+
+  function cancelTrash(note: Note) {
+    if (pendingTrash?.note !== note) return;
+    clearTimeout(pendingTrash.timer);
+    pendingTrash = null;
+    trashing.delete(note.id);
+    openNote(note.id);
+  }
+
+  async function commitTrash() {
+    if (!pendingTrash) return;
+    const { note, timer } = pendingTrash;
+    clearTimeout(timer);
+    pendingTrash = null;
     try {
       apply(await api.trash(note.id));
-      show(`Moved “${note.title}” to the Trash`);
     } catch (e) {
       show(String(e), true);
+    } finally {
+      trashing.delete(note.id);
     }
   }
 
@@ -172,7 +209,7 @@
       keys: "⇧A",
       run: () => showPane(pane === "archive" ? "notes" : "archive"),
     },
-    { id: "trash", label: "Move note to the Trash", keys: "d", run: withNote(() => (overlay = "trash")) },
+    { id: "trash", label: "Move note to the Trash", keys: "t", run: withNote(trash) },
     { id: "edit", label: "Open in editor", keys: "e", run: edit },
     { id: "reveal", label: "Reveal in Finder", keys: "o", run: revealNote },
     { id: "reload", label: "Reload", keys: "r", run: reload },
@@ -227,8 +264,8 @@
       a: withNote(archiveOrRestore),
       A: () => showPane(pane === "archive" ? "notes" : "archive"),
       u: undo,
-      d: withNote(() => (overlay = "trash")),
-      Backspace: withNote(() => (overlay = "trash")),
+      t: withNote(trash),
+      Backspace: withNote(trash),
       e: edit,
       o: revealNote,
     };
@@ -247,7 +284,7 @@
     {pane}
     {folders}
     notes={ordered}
-    counts={{ notes: library.notes.length, archive: library.archived.length }}
+    counts={{ notes: notes.length, archive: archived.length }}
     {selectedId}
     onSelect={(id) => select(id)}
     onPane={showPane}
@@ -292,8 +329,8 @@
 
 {#if overlay === "palette"}
   <Palette
-    notes={library.notes}
-    archived={library.archived}
+    {notes}
+    {archived}
     bind:archive={paletteArchive}
     {commands}
     onOpen={(id, line) => {
@@ -301,15 +338,6 @@
       openNote(id);
       focusLine = line;
     }}
-    onClose={() => (overlay = null)}
-  />
-{:else if overlay === "trash" && selected}
-  {@const note = selected}
-  <Confirm
-    title="Move to the Trash?"
-    message={`“${note.title}” goes to the macOS Trash, from where Finder can put it back.`}
-    action="Move to Trash"
-    onConfirm={() => trash(note)}
     onClose={() => (overlay = null)}
   />
 {:else if overlay === "session" && selected}
