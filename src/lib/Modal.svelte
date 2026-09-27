@@ -1,11 +1,28 @@
+<script lang="ts" module>
+  /** The open dialogs, the topmost last: Escape closes only that one. */
+  const stack: symbol[] = [];
+</script>
+
 <script lang="ts">
   import type { Snippet } from "svelte";
 
   // A centred dialog over a dimmed window; Escape or a click outside closes it.
-  let { title, onClose, children }: { title: string; onClose: () => void; children: Snippet } = $props();
+  let { title, onClose, children, small = false }: {
+    title: string;
+    onClose: () => void;
+    children: Snippet;
+    small?: boolean;
+  } = $props();
+
+  const id = Symbol();
+
+  $effect(() => {
+    stack.push(id);
+    return () => stack.splice(stack.indexOf(id), 1);
+  });
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && stack.at(-1) === id) {
       event.preventDefault();
       event.stopPropagation();
       onClose();
@@ -18,7 +35,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={onClose}>
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="modal" role="dialog" tabindex="-1" aria-label={title} onclick={(e) => e.stopPropagation()}>
+  <div class="modal" class:small role="dialog" tabindex="-1" aria-label={title} onclick={(e) => e.stopPropagation()}>
     <h3>{title}</h3>
     {@render children()}
   </div>
@@ -45,6 +62,10 @@
     border: 1px solid var(--surface0);
     background: var(--base);
     box-shadow: var(--shadow);
+  }
+
+  .small {
+    width: min(400px, 90vw);
   }
 
   h3 {

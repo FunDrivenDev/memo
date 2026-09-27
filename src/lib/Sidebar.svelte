@@ -1,19 +1,33 @@
+<script lang="ts" module>
+  export type Pane = "notes" | "archive";
+</script>
+
 <script lang="ts">
   import type { Folder, Note } from "./api";
   import { reveal } from "./scroll";
   import { age, clock, longDate } from "./time.svelte";
 
   let {
+    pane,
     folders,
     notes,
+    counts,
     selectedId,
+    active,
     onSelect,
+    onPane,
     onPalette,
   }: {
+    pane: Pane;
+    /** The folders and notes of the pane shown. */
     folders: Folder[];
     notes: Note[];
+    counts: Record<Pane, number>;
     selectedId: string | null;
+    /** Whether the keys move through the list, rather than through the note. */
+    active: boolean;
     onSelect: (id: string) => void;
+    onPane: (pane: Pane) => void;
     onPalette: () => void;
   } = $props();
 
@@ -31,12 +45,19 @@
   });
 </script>
 
-<aside>
+<aside class:archive={pane === "archive"} class:idle={!active}>
   <header data-tauri-drag-region>
     <button class="search" onclick={onPalette} title="Command palette">
-      <span>Search notes…</span>
+      <span>{pane === "archive" ? "Search the archive…" : "Search notes…"}</span>
       <kbd>⌘K</kbd>
     </button>
+    <div class="panes" role="tablist">
+      {#each [["notes", "Notes"], ["archive", "Archive"]] as const as [id, label] (id)}
+        <button role="tab" aria-selected={pane === id} class:active={pane === id} onclick={() => onPane(id)}>
+          {label} <span class="count">{counts[id]}</span>
+        </button>
+      {/each}
+    </div>
   </header>
 
   <nav bind:this={list}>
@@ -77,6 +98,42 @@
   header {
     /* Room for the window's traffic lights. */
     padding: 38px 12px 10px;
+  }
+
+  .panes {
+    display: flex;
+    gap: 2px;
+    margin-top: 8px;
+    padding: 2px;
+    border-radius: 7px;
+    background: var(--crust);
+  }
+
+  .panes button {
+    flex: 1;
+    padding: 3px 8px;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--subtext);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .panes button.active {
+    background: var(--base);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+  }
+
+  /* A tint tells the archive from the notes at a glance. */
+  aside.archive {
+    background: color-mix(in srgb, var(--yellow) 7%, var(--mantle));
+  }
+
+  aside.archive h2 {
+    background: color-mix(in srgb, var(--yellow) 7%, var(--mantle));
   }
 
   .search {
@@ -142,6 +199,10 @@
     background: var(--base);
     border-color: var(--surface0);
     box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .idle .card.selected {
+    box-shadow: inset 3px 0 0 var(--surface1);
   }
 
   .title {

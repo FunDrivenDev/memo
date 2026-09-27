@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Refuse to push a commit that carries a secret or a home directory path.
+set -euo pipefail
+exec mise exec -- just lint secrets

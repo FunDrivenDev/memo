@@ -229,18 +229,56 @@ pub fn resolve(folders: &[Folder], id: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// Where the archived notes of `folder` go: an `archive/<folder>` sibling, so the folders
-/// themselves stay flat.
-pub fn archive_dir(folder: &Path) -> PathBuf {
-    let name = folder.file_name().unwrap_or_default();
-    folder.parent().unwrap_or(folder).join("archive").join(name)
+/// The sections of the archive: each visible subfolder, sorted by name, then the archive
+/// itself when it holds notes directly.
+pub fn archive_folders(archive: &Path) -> Vec<Folder> {
+    let Ok(archive) = archive.canonicalize() else {
+        return Vec::new();
+    };
+    let mut folders: Vec<Folder> = std::fs::read_dir(&archive)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_dir()
+                && !p
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+        })
+        .map(|path| Folder {
+            name: path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            path,
+        })
+        .collect();
+    folders.sort_by(|a, b| a.name.cmp(&b.name));
+    if !markdown_files(&archive).is_empty() {
+        folders.push(Folder {
+            name: archive
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            path: archive,
+        });
+    }
+    folders
 }
 
-/// Moves the note to its folder's archive, never overwriting an archived note.
-pub fn archive(path: &Path) -> Result<PathBuf, String> {
-    let folder = path.parent().ok_or("no parent folder")?;
-    let dir = archive_dir(folder);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+/// Where the archived notes of `folder` go: `<archive>/<folder name>`.
+pub fn archive_target(archive: &Path, folder: &Path) -> PathBuf {
+    archive.join(folder.file_name().unwrap_or_default())
+}
+
+/// Moves the note into `dir`, created if needed, never overwriting a file there: a taken
+/// name gets `-2`, `-3`... Across volumes, copies then removes, keeping the modification
+/// date.
+pub fn move_into(path: &Path, dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let stem = path.file_stem().unwrap_or_default().to_string_lossy();
     let ext = path.extension().unwrap_or_default().to_string_lossy();
     let mut target = dir.join(path.file_name().unwrap_or_default());
@@ -249,8 +287,27 @@ pub fn archive(path: &Path) -> Result<PathBuf, String> {
         n += 1;
         target = dir.join(format!("{stem}-{n}.{ext}"));
     }
-    std::fs::rename(path, &target).map_err(|e| format!("{}: {e}", path.display()))?;
+    move_file(path, &target)?;
     Ok(target)
+}
+
+/// Renames `from` to `to`, copying across volumes.
+pub fn move_file(from: &Path, to: &Path) -> Result<(), String> {
+    let error = |e: std::io::Error| format!("{}: {e}", from.display());
+    match std::fs::rename(from, to) {
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            let modified = std::fs::metadata(from)
+                .and_then(|m| m.modified())
+                .map_err(error)?;
+            std::fs::copy(from, to).map_err(error)?;
+            let _ = std::fs::File::options()
+                .write(true)
+                .open(to)
+                .and_then(|f| f.set_modified(modified));
+            std::fs::remove_file(from).map_err(error)
+        }
+        result => result.map_err(error),
+    }
 }
 
 /// Moves the note to the macOS Trash, from where Finder can put it back.
@@ -335,12 +392,18 @@ mod tests {
     fn archive_never_overwrites() {
         let (root, folders) = setup();
         let plans = &folders[0].path;
-        let first = archive(&plans.join("a.md")).unwrap();
+        let archive = root.path().canonicalize().unwrap().join("archive");
+        let dir = archive_target(&archive, plans);
+        let first = move_into(&plans.join("a.md"), &dir).unwrap();
         std::fs::write(plans.join("a.md"), "# A again").unwrap();
-        let second = archive(&plans.join("a.md")).unwrap();
-        let dir = root.path().canonicalize().unwrap().join("archive/plans");
-        assert_eq!(first, dir.join("a.md"));
-        assert_eq!(second, dir.join("a-2.md"));
+        let second = move_into(&plans.join("a.md"), &dir).unwrap();
+        assert_eq!(first, archive.join("plans/a.md"));
+        assert_eq!(second, archive.join("plans/a-2.md"));
         assert!(list(&folders).is_empty());
+
+        let sections = archive_folders(&archive);
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].name, "plans");
+        assert_eq!(list(&sections).len(), 2);
     }
 }
