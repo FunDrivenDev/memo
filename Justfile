@@ -74,21 +74,12 @@ build:
     RUSTFLAGS="--remap-path-prefix=$HOME=~" deno task tauri build --bundles app
     @du -sh {{ app }} | sed 's/\t/  /'
 
-# Release `version` through the Release workflow, or with `--locally` build the app into ~/Applications and open it.
-[arg("locally", long, value="true")]
-publish version="" locally="false":
-    just {{ if locally == "true" { "_install-locally" } else if version != "" { "_release " + version } else { error("publish needs a version or --locally") } }}
-
-[private]
-_install-locally: build
+# Build the app into ~/Applications and open it.
+app: build
     mkdir -p ~/Applications
     rm -rf ~/Applications/memo.app
     cp -R {{ app }} ~/Applications/memo.app
     open ~/Applications/memo.app
-
-[private]
-_release version:
-    gh workflow run release -f version={{ version }}
 
 # What CI runs on Linux: check, build for the host without bundling, and lint the macOS code (clang compiles its Objective-C without an SDK).
 ci: check
