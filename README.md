@@ -42,7 +42,7 @@ Each existing folder becomes a sidebar section. The section lists the `.md` file
 | `⌘,` | Settings: folders and archive |
 | `?` | Help |
 
-Every search word must match fuzzily, in the title or on one line; as in fzf, `'word` matches exactly, `^word` at the start, `word$` at the end, and `!word` excludes. Opening a search result scrolls the note to the matching line.
+Every search word must match fuzzily, in the title or on one line; notes whose title matches come first, above those matching in the content only; as in fzf, `'word` matches exactly, `^word` at the start, `word$` at the end, and `!word` excludes. Opening a search result scrolls the note to the matching line.
 
 "Start a session" guesses the working directory from the git repository the note mentions most (home otherwise) and proposes a prompt; both can be edited. It then opens a Ghostty window (Terminal.app when Ghostty is missing) running `claude '<prompt>'` in your usual shell. The first time, macOS asks to let memo control the terminal.
 
