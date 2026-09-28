@@ -69,7 +69,7 @@ memo is ad-hoc signed, without an Apple Developer ID, so the cask lifts the quar
 Every tool is pinned in `mise.toml`, and the Justfile is the entry point. On a fresh clone, run `just install` first:
 
 ```sh
-just install             # install the tools, the dependencies and the pre-push secrets hook
+just install             # install the tools, the dependencies, headless Chromium for the tests and the pre-push secrets hook
 just dev                 # run with hot reload
 just check               # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, workflows, spelling, secrets), then test
 just audit               # secrets and personal data in the history, vulnerable dependencies, unsafe workflows

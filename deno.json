@@ -11,6 +11,7 @@
     "@tauri-apps/api": "npm:@tauri-apps/api@^2.11.0",
     "@tauri-apps/api/": "npm:/@tauri-apps/api@^2.11.0/",
     "@tauri-apps/cli": "npm:@tauri-apps/cli@^2.11.0",
+    "playwright": "npm:playwright@^1.63.0",
     "svelte": "npm:svelte@^5.57.1",
     "svelte/": "npm:/svelte@^5.57.1/",
     "svelte-check": "npm:svelte-check@^4.7.6",

@@ -22,6 +22,7 @@ install mode="":
         update) deno outdated --update --latest && cargo update --manifest-path {{ manifest }} ;;
         *) echo "unknown mode {{ mode }}: frozen, clean or update" >&2; exit 2 ;;
     esac
+    deno run --quiet --allow-all npm:playwright install --only-shell chromium  # for the browser tests
 
 # Format everything, fixing what the formatters can.
 fmt:
@@ -56,10 +57,10 @@ lint family="":
     if want spelling; then typos; fi
     if want secrets; then gitleaks git --config .gitleaks.toml --redact --no-banner --log-level warn .; fi
 
-# Run the Rust tests, then the Deno ones.
+# Run the Rust tests, then the Deno ones, which drive the front end in headless Chromium.
 test:
     cargo nextest run --manifest-path {{ manifest }} --locked
-    deno test --quiet --allow-run=just tests/
+    deno test --quiet --allow-all tests/
 
 # Lint, then test.
 check: lint test
