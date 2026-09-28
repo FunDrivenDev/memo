@@ -9,20 +9,18 @@ app := "src-tauri/target/release/bundle/macos/memo.app"
 default:
     @just --list --unsorted
 
-alias dependencies := deps
-
-# Install the dependencies: `install` (default), `frozen` (from the lockfiles, as in CI), `clean` (wipe, then frozen) or `update`.
-deps mode="install":
+# Set up a fresh clone: the tools, the dependencies and the pre-push secrets hook. `mode` is empty, `frozen` (from the lockfiles, as in CI), `clean` (wipe, then frozen) or `update`.
+install mode="":
     #!/usr/bin/env bash
     set -euo pipefail
     mise install --quiet
     git config core.hooksPath .githooks  # the pre-push secrets check
     case "{{ mode }}" in
-        install) deno install --quiet && cargo fetch --manifest-path {{ manifest }} ;;
+        "") deno install --quiet && cargo fetch --manifest-path {{ manifest }} ;;
         frozen) deno install --quiet --frozen && cargo fetch --locked --manifest-path {{ manifest }} ;;
         clean) rm -rf node_modules && cargo clean --manifest-path {{ manifest }} && deno install --quiet --frozen && cargo fetch --locked --manifest-path {{ manifest }} ;;
         update) deno outdated --update --latest && cargo update --manifest-path {{ manifest }} ;;
-        *) echo "unknown mode {{ mode }}: install, frozen, clean or update" >&2; exit 2 ;;
+        *) echo "unknown mode {{ mode }}: frozen, clean or update" >&2; exit 2 ;;
     esac
 
 # Format everything, fixing what the formatters can.
@@ -58,9 +56,10 @@ lint family="":
     if want spelling; then typos; fi
     if want secrets; then gitleaks git --config .gitleaks.toml --redact --no-banner --log-level warn .; fi
 
-# Run the Rust tests.
+# Run the Rust tests, then the Deno ones.
 test:
     cargo nextest run --manifest-path {{ manifest }} --locked
+    deno test --quiet --allow-run=just tests/
 
 # Lint, then test.
 check: lint test
@@ -74,12 +73,21 @@ build:
     RUSTFLAGS="--remap-path-prefix=$HOME=~" deno task tauri build --bundles app
     @du -sh {{ app }} | sed 's/\t/  /'
 
-# Install the release app in ~/Applications and open it.
-install: build
+# Release `version` through the Release workflow, or with `--locally` build the app into ~/Applications and open it.
+[arg("locally", long, value="true")]
+publish version="" locally="false":
+    just {{ if locally == "true" { "_install-locally" } else if version != "" { "_release " + version } else { error("publish needs a version or --locally") } }}
+
+[private]
+_install-locally: build
     mkdir -p ~/Applications
     rm -rf ~/Applications/memo.app
     cp -R {{ app }} ~/Applications/memo.app
     open ~/Applications/memo.app
+
+[private]
+_release version:
+    gh workflow run release -f version={{ version }}
 
 # What CI runs on Linux: check, build for the host without bundling, and lint the macOS code (clang compiles its Objective-C without an SDK).
 ci: check

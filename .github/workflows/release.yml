@@ -55,7 +55,7 @@ jobs:
           cache: false
 
       - name: Install the dependencies from the lockfiles
-        run: just deps frozen
+        run: just install frozen
 
       - name: Set the version, build and zip the app
         run: |
