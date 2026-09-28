@@ -21,6 +21,7 @@
     "lineWidth": 110,
     "include": [
       "src/",
+      "tests/",
       "vite.config.ts",
       "svelte.config.js",
       "index.html",
@@ -31,6 +32,7 @@
   "lint": {
     "include": [
       "src/",
+      "tests/",
       "vite.config.ts"
     ]
   }

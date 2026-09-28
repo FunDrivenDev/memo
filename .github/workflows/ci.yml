@@ -43,7 +43,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install the dependencies from the lockfiles
-        run: just deps frozen
+        run: just install frozen
 
       - name: Check, build for Linux, lint for macOS
         run: just ci
@@ -63,7 +63,7 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
 
       - name: Install the dependencies from the lockfiles
-        run: just deps frozen
+        run: just install frozen
 
       - name: Audit secrets, personal data, dependencies and workflows
         run: just audit
