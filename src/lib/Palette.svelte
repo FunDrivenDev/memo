@@ -80,6 +80,12 @@
     return () => clearTimeout(timer);
   });
 
+  /** Index of the first content-only hit when title hits come before it, where a divider goes. */
+  const firstContentOnly = $derived.by(() => {
+    const i = items.findIndex((item) => item.kind === "note" && item.hit && !item.hit.in_title);
+    return i > 0 ? i : -1;
+  });
+
   $effect(() => {
     input?.focus();
   });
@@ -134,6 +140,7 @@
     </div>
     <ul bind:this={list}>
       {#each items as item, i (item.kind === "note" ? item.note.id : item.command.id)}
+        {#if i === firstContentOnly}<li class="divider">In the content only</li>{/if}
         <li>
           <button
             class:active={i === active}
@@ -281,6 +288,21 @@
     display: inline-block;
     min-width: 3.2em;
     color: var(--overlay0);
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 10px 4px;
+    font-size: 11px;
+    color: var(--overlay0);
+  }
+
+  .divider::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--surface0);
   }
 
   .none {

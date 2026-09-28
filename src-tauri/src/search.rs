@@ -11,6 +11,8 @@ use crate::notes::Note;
 pub struct Hit {
     pub id: String,
     pub score: u32,
+    /// Whether the title matches every search word, not only the content.
+    pub in_title: bool,
     pub title_indices: Vec<u32>,
     pub snippets: Vec<Snippet>,
 }
@@ -27,7 +29,8 @@ pub struct Snippet {
 const SNIPPETS_PER_NOTE: usize = 3;
 const SNIPPET_CHARS: usize = 140;
 
-/// The notes matching `query`, best first. A title match counts double.
+/// The notes matching `query`: those whose title matches first, then those matching in the
+/// content only, each group best first.
 pub fn search(query: &str, notes: &[Note], limit: usize) -> Vec<Hit> {
     let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
     if query.trim().is_empty() {
@@ -63,7 +66,7 @@ pub fn search(query: &str, notes: &[Note], limit: usize) -> Vec<Hit> {
 
         let best_line = lines.first().map_or(0, |l| l.0);
         let breadth = u32::try_from(lines.len().min(10)).unwrap_or(10);
-        let score = title_score.map_or(0, |s| s * 2).max(best_line) + breadth;
+        let score = title_score.unwrap_or(0).max(best_line) + breadth;
 
         let snippets = lines
             .iter()
@@ -80,11 +83,12 @@ pub fn search(query: &str, notes: &[Note], limit: usize) -> Vec<Hit> {
         hits.push(Hit {
             id: note.id.clone(),
             score,
+            in_title: title_score.is_some(),
             title_indices,
             snippets,
         });
     }
-    hits.sort_by_key(|h| std::cmp::Reverse(h.score));
+    hits.sort_by_key(|h| std::cmp::Reverse((h.in_title, h.score)));
     hits.truncate(limit);
     hits
 }
@@ -159,6 +163,28 @@ mod tests {
         assert_eq!(ids, ["a", "b"]);
         assert_eq!(hits[1].snippets[0].line, 2);
         assert_eq!(hits[1].snippets[0].text, "we also run terraform plan");
+        assert!(hits[0].in_title && !hits[1].in_title);
+    }
+
+    #[test]
+    fn a_weak_title_match_outranks_a_strong_content_match() {
+        let notes = [
+            note(
+                "body",
+                "Ansible audit",
+                "# Ansible audit\nterraform terraform terraform",
+            ),
+            note(
+                "title",
+                "The platform refactor",
+                "# The platform refactor\nnothing",
+            ),
+        ];
+        let ids: Vec<String> = search("tfrm", &notes, 10)
+            .into_iter()
+            .map(|h| h.id)
+            .collect();
+        assert_eq!(ids, ["title", "body"]);
     }
 
     #[test]

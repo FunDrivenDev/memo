@@ -69,6 +69,8 @@ export interface Snippet {
 export interface Hit {
   id: string;
   score: number;
+  /** Whether the title matches; such hits come first, before the content-only ones. */
+  in_title: boolean;
   title_indices: number[];
   snippets: Snippet[];
 }
