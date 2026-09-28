@@ -10,8 +10,9 @@ mod search;
 mod session;
 
 use std::ffi::OsStr;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -464,6 +465,30 @@ fn open_url(url: &str) -> Result<(), String> {
     open(&[url.as_ref()])
 }
 
+/// Puts `text` on the clipboard through pbcopy, so copying needs neither the webview's
+/// clipboard permission nor a pasteboard crate.
+#[tauri::command]
+fn copy(text: &str) -> Result<(), String> {
+    let mut child = Command::new("/usr/bin/pbcopy")
+        // An app opened from Finder has no locale, and pbcopy would then mangle non-ASCII text.
+        .env("LANG", "en_US.UTF-8")
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(text.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("pbcopy exited with {status}"))
+    }
+}
+
 fn open(args: &[&OsStr]) -> Result<(), String> {
     let mut cmd = Command::new("/usr/bin/open");
     cmd.args(args);
@@ -503,6 +528,7 @@ pub fn run() {
                 eprintln!("memo: could not save the archive folder: {e}");
             }
             state.reload(app.handle());
+            std::thread::spawn(render::warm_up);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -524,7 +550,8 @@ pub fn run() {
             start_session,
             reveal,
             edit,
-            open_url
+            open_url,
+            copy
         ])
         .run(tauri::generate_context!())
         .expect("error while running memo");

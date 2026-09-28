@@ -6,10 +6,12 @@ export interface Fixture {
   notes: number;
   /** How many paragraphs each note renders to. */
   paragraphs: number;
+  /** HTML rendered after the paragraphs. */
+  after?: string;
 }
 
 /** Stands in for the Rust commands: one folder of notes, each a column of numbered paragraphs. */
-function mockTauri({ notes, paragraphs }: Fixture) {
+function mockTauri({ notes, paragraphs, after = "" }: Fixture) {
   const list = Array.from({ length: notes }, (_, i) => ({
     id: `/notes/plans/note-${i}.md`,
     folder: "plans",
@@ -21,7 +23,7 @@ function mockTauri({ notes, paragraphs }: Fixture) {
   const html = Array.from(
     { length: paragraphs },
     (_, i) => `<p data-sourcepos="${2 * i + 1}:1-${2 * i + 1}:20">Paragraph ${i}</p>`,
-  ).join("");
+  ).join("") + after;
   const replies: Record<string, unknown> = {
     library: {
       claude_dir: "/claude",
@@ -37,7 +39,10 @@ function mockTauri({ notes, paragraphs }: Fixture) {
   let callbacks = 0;
   Object.assign(globalThis, {
     __TAURI_INTERNALS__: {
-      invoke: (cmd: string) => Promise.resolve(replies[cmd] ?? null),
+      invoke: (cmd: string, args: Record<string, unknown>) => {
+        if (cmd === "copy") Object.assign(globalThis, { copied: args.text });
+        return Promise.resolve(replies[cmd] ?? null);
+      },
       transformCallback: () => ++callbacks,
     },
   });
