@@ -78,3 +78,5 @@ just publish 0.2.0       # release 0.2.0 through the Release workflow
 ```
 
 Deno installs the npm packages itself; npm is never used.
+
+The note's column takes 66% of its pane, and at least 60 characters when the window is narrow; `--note-width` in `src/app.css` sets that share.

@@ -1,10 +1,7 @@
 /// <reference lib="dom" />
 import { equal, ok } from "node:assert/strict";
 import type { Locator } from "playwright";
-import { openApp } from "./app.ts";
-
-const browserTest = (name: string, fn: () => Promise<void>) =>
-  Deno.test({ name, fn, sanitizeOps: false, sanitizeResources: false });
+import { browserTest, openApp } from "./app.ts";
 
 /** Whether the element ends above the bottom of the window. */
 async function endsInWindow(el: Locator): Promise<boolean> {

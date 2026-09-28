@@ -210,7 +210,8 @@
   }
 
   article {
-    max-width: 76ch;
+    width: var(--note-width);
+    min-width: min(100%, 60ch);
     margin: 0 auto;
     padding: 8px 40px 30vh;
     user-select: text;
