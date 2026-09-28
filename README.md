@@ -52,6 +52,18 @@ Every search word must match fuzzily, in the title or on one line; as in fzf, `'
 - Markdown is rendered by comrak without raw HTML, then sanitised by ammonia; the CSP allows only the app's own scripts.
 - Only `http`, `https` and `mailto` links leave the app, and they open in the default browser. Terminal commands go to osascript as arguments and are shell-quoted, never spliced into the script.
 
+## Install
+
+```sh
+brew install fundrivendev/tap/memo
+```
+
+Releases come from the Release workflow, started from the Actions tab or with `gh workflow run release -f version=0.2.0`. Once CI has passed on `main`, it builds the app on macOS, then, on Linux, scans it for secrets and home directory paths, commits the version, tags it and releases it. It then copies the app to [FunDrivenDev/homebrew-tap](https://github.com/FunDrivenDev/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The version commit, the tag and the cask commit are signed as Fun Driven Stuff <stuff@fundriven.dev>.
+
+Every job runs on GitHub-hosted runners, free and unlimited for a public repository, and on Linux except the app build.
+
+memo is ad-hoc signed, without an Apple Developer ID, so the cask lifts the quarantine flag Gatekeeper would otherwise block it on.
+
 ## Development
 
 Every tool is pinned in `mise.toml`, and the Justfile is the entry point:
@@ -59,7 +71,8 @@ Every tool is pinned in `mise.toml`, and the Justfile is the entry point:
 ```sh
 just deps      # install the tools, the dependencies and the pre-push secrets hook
 just dev       # run with hot reload
-just check     # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, spelling, secrets), then test
+just check     # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, workflows, spelling, secrets), then test
+just audit     # secrets and personal data in the history, vulnerable dependencies, unsafe workflows
 just install   # build the release bundle into ~/Applications and open it
 ```
 

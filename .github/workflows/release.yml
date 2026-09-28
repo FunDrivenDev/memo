@@ -1,0 +1,141 @@
+# Publishes a version from main: start it from the Actions tab or with
+# `gh workflow run release -f version=0.2.0`. Only the app build needs macOS; Linux
+# checks the request beforehand, then scans the app, commits, tags and releases the
+# version, and pushes the app to the Homebrew tap.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to publish, such as 0.2.0.
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check main, the version, and CI on main's head
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo "::error::release from main, not $GITHUB_REF"; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$VERSION is not a semantic version"; exit 1; }
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" >/dev/null 2>&1; then echo "::error::v$VERSION already exists"; exit 1; fi
+          ci=$(gh run list --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" --workflow CI --json status,conclusion --jq '.[0] | "\(.status) \(.conclusion)"')
+          [[ "$ci" == "completed success" ]] || { echo "::error::CI has not passed on $GITHUB_SHA (${ci:-no run})"; exit 1; }
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+
+  build:
+    needs: preflight
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          # Nothing restored from a cache goes into the app.
+          cache: false
+
+      - name: Install the dependencies from the lockfiles
+        run: just deps frozen
+
+      - name: Set the version, build and zip the app
+        run: |
+          just set-version "$VERSION"
+          just build
+          just package "$VERSION"
+        env:
+          VERSION: ${{ inputs.version }}
+
+      # The versioned manifests go along, so the release job commits what was built.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: |
+            src-tauri/Cargo.toml
+            src-tauri/Cargo.lock
+            src-tauri/target/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Holds SIGNING_KEY and TAP_TOKEN.
+    environment: release
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+      ARCHIVE: src-tauri/target/dist/memo-${{ inputs.version }}-macos-arm64.zip
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: just gitleaks
+          cache: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: src-tauri
+
+      - name: Scan the app for secrets and home directory paths
+        run: |
+          unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/unpacked"
+          just scan-app "$RUNNER_TEMP/unpacked/memo.app"
+
+      - name: Commit, tag and push the version
+        run: |
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$SIGNING_KEY" > "$key"
+          git config user.name "Fun Driven Stuff"
+          git config user.email "stuff@fundriven.dev"
+          git config gpg.format ssh
+          git config user.signingkey "$key"
+          git diff --quiet || git commit --quiet --gpg-sign -m "Publish $VERSION" src-tauri/Cargo.toml src-tauri/Cargo.lock
+          git tag --sign "v$VERSION" -m "memo $VERSION"
+          gh auth setup-git
+          # Atomic: if main moved since the run started, neither the commit nor the tag lands.
+          git push --atomic origin HEAD:main "v$VERSION"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+
+      - name: Release the app
+        run: gh release create "v$VERSION" --verify-tag --title "memo $VERSION" --generate-notes "$ARCHIVE"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Push the app to the Homebrew tap
+        uses: FunDrivenDev/homebrew-tap/.github/actions/publish-cask@4cadfc0c521cb71d38ea087046501c261e0e8dd5
+        with:
+          cask: memo
+          version: ${{ inputs.version }}
+          archive: ${{ env.ARCHIVE }}
+          definition: packaging/memo.rb
+          token: ${{ secrets.TAP_TOKEN }}
+          signing-key: ${{ secrets.SIGNING_KEY }}
