@@ -6,6 +6,7 @@
   --surface0: #ccd0da;
   --surface1: #bcc0cc;
   --overlay0: #9ca0b0;
+  --overlay2: #7c7f93;
   --subtext: #5c5f77;
   --text: #4c4f69;
   --accent: #8839ef;
@@ -14,6 +15,10 @@
   --yellow: #df8e1d;
   --red: #d20f39;
   --teal: #179299;
+  --peach: #fe640b;
+  --sky: #04a5e5;
+  --pink: #ea76cb;
+  --maroon: #e64553;
   --shadow: 0 12px 40px rgb(76 79 105 / 0.25);
 
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
@@ -38,6 +43,7 @@
     --surface0: #414559;
     --surface1: #51576d;
     --overlay0: #737994;
+    --overlay2: #949cbb;
     --subtext: #a5adce;
     --text: #c6d0f5;
     --accent: #ca9ee6;
@@ -46,6 +52,10 @@
     --yellow: #e5c890;
     --red: #e78284;
     --teal: #81c8be;
+    --peach: #ef9f76;
+    --sky: #99d1db;
+    --pink: #f4b8e4;
+    --maroon: #ea999c;
     --shadow: 0 12px 40px rgb(0 0 0 / 0.45);
   }
 }

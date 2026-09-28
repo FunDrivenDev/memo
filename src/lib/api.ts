@@ -108,6 +108,7 @@ export const startSession = (workdir: string, prompt: string) =>
 export const reveal = (id: string) => invoke<void>("reveal", { id });
 export const edit = (id: string) => invoke<void>("edit", { id });
 export const openUrl = (url: string) => invoke<void>("open_url", { url });
+export const copy = (text: string) => invoke<void>("copy", { text });
 
 export const onOpenSettings = (handler: () => void): Promise<UnlistenFn> => listen("open-settings", handler);
 

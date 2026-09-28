@@ -49,7 +49,8 @@ Every search word must match fuzzily, in the title or on one line; as in fzf, `'
 ## Security
 
 - The front end touches no file directly: it has no filesystem or shell plugin, and its capabilities stop at events and window dragging. Every command takes a note path, and Rust checks it is a Markdown file directly inside a configured folder before anything else. The folders themselves are set only through the settings window, which stores them in memo's own settings file.
-- Markdown is rendered by comrak without raw HTML, then sanitised by ammonia; the CSP allows only the app's own scripts.
+- Markdown is rendered by comrak without raw HTML, fenced code is coloured by syntect with bat's grammars, then everything is sanitised by ammonia; the CSP allows only the app's own scripts.
+- The copy button of a code block hands its text to `pbcopy`: the front end can write to the clipboard, never read it.
 - Only `http`, `https` and `mailto` links leave the app, and they open in the default browser. Terminal commands go to osascript as arguments and are shell-quoted, never spliced into the script.
 
 ## Install
