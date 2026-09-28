@@ -4,6 +4,8 @@
     "npm:@sveltejs/vite-plugin-svelte@^7.3.1": "7.3.1_svelte@5.57.1_vite@8.3.1",
     "npm:@tauri-apps/api@^2.11.0": "2.11.1",
     "npm:@tauri-apps/cli@^2.11.0": "2.11.5",
+    "npm:playwright@*": "1.63.0",
+    "npm:playwright@^1.63.0": "1.63.0",
     "npm:svelte-check@^4.7.6": "4.7.6_svelte@5.57.1_typescript@6.0.3",
     "npm:svelte@^5.57.1": "5.57.1",
     "npm:typescript@^6.0.3": "6.0.3",
@@ -378,6 +380,17 @@
     "picomatch@4.0.7": {
       "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="
     },
+    "playwright-core@1.63.0": {
+      "integrity": "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==",
+      "bin": true
+    },
+    "playwright@1.63.0": {
+      "integrity": "sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==",
+      "dependencies": [
+        "playwright-core"
+      ],
+      "bin": true
+    },
     "postcss@8.5.28": {
       "integrity": "sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==",
       "dependencies": [
@@ -500,6 +513,7 @@
       "npm:@sveltejs/vite-plugin-svelte@^7.3.1",
       "npm:@tauri-apps/api@^2.11.0",
       "npm:@tauri-apps/cli@^2.11.0",
+      "npm:playwright@^1.63.0",
       "npm:svelte-check@^4.7.6",
       "npm:svelte@^5.57.1",
       "npm:typescript@^6.0.3",

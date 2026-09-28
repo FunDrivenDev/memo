@@ -384,6 +384,8 @@
   .layout {
     display: grid;
     grid-template-columns: minmax(260px, 320px) 1fr;
+    /* Holds the row to the window: a sidebar longer than it would otherwise stretch both panes past the bottom. */
+    grid-template-rows: minmax(0, 1fr);
     height: 100%;
   }
 
