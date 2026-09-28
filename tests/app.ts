@@ -71,3 +71,7 @@ export async function openApp(
     },
   };
 }
+
+/** A test that opens the app: Playwright's browser and Vite's server outlive Deno's per-test leak checks. */
+export const browserTest = (name: string, fn: () => Promise<void>) =>
+  Deno.test({ name, fn, sanitizeOps: false, sanitizeResources: false });

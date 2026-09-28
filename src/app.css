@@ -19,6 +19,8 @@
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --radius: 8px;
+  /* The note's column, as a share of the note pane: it follows the window as it resizes. */
+  --note-width: 66%;
 
   color-scheme: light dark;
   font-family: var(--sans);
