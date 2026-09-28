@@ -5,8 +5,8 @@
 unmaintained = "workspace"
 unsound = "all"
 ignore = [
-    # Tauri, up to 3.0.0-alpha.3, still requires gtk 0.18 and so glib 0.18.
-    { id = "RUSTSEC-2024-0429", reason = "glib 0.18 builds only for Linux, and memo never iterates a VariantStrIter" },
+  # Tauri, up to 3.0.0-alpha.3, still requires gtk 0.18 and so glib 0.18.
+  { id = "RUSTSEC-2024-0429", reason = "glib 0.18 builds only for Linux, and memo never iterates a VariantStrIter" },
 ]
 
 [sources]
