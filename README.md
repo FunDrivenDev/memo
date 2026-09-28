@@ -58,7 +58,7 @@ Every search word must match fuzzily, in the title or on one line; as in fzf, `'
 brew install fundrivendev/tap/memo
 ```
 
-Releases come from the Release workflow, started from the Actions tab or with `just publish 0.2.0`. Once CI has passed on `main`, it builds the app on macOS, then, on Linux, scans it for secrets and home directory paths, commits the version, tags it and releases it. It then copies the app to [FunDrivenDev/homebrew-tap](https://github.com/FunDrivenDev/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The version commit, the tag and the cask commit are signed as Fun Driven Stuff <stuff@fundriven.dev>.
+Every merge to `main` is released once CI passes on it. The Release workflow waits 5 minutes and releases only `main`'s head, so pull requests merged close together ship as one release. It bumps the patch version, or the minor or major one when a pull request in the release carries the `minor` or `major` label. It builds the app on macOS, then, on Linux, scans it for secrets and home directory paths, tags the commit and releases it. It then copies the app to [FunDrivenDev/homebrew-tap](https://github.com/FunDrivenDev/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The tag and the cask commit are signed as Fun Driven Stuff <stuff@fundriven.dev>. If a release fails, "Re-run failed jobs" finishes it.
 
 Every job runs on GitHub-hosted runners, free and unlimited for a public repository, and on Linux except the app build.
 
@@ -73,8 +73,7 @@ just install             # install the tools, the dependencies, headless Chromiu
 just dev                 # run with hot reload
 just check               # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, workflows, spelling, secrets), then test
 just audit               # secrets and personal data in the history, vulnerable dependencies, unsafe workflows
-just publish --locally   # build the release bundle into ~/Applications and open it
-just publish 0.2.0       # release 0.2.0 through the Release workflow
+just app                 # build the release bundle into ~/Applications and open it
 ```
 
 Deno installs the npm packages itself; npm is never used.

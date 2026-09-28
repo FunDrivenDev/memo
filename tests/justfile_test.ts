@@ -21,25 +21,9 @@ Deno.test("just install frozen installs from the lockfiles, as CI does", async (
   match(script, /cargo fetch --locked/);
 });
 
-Deno.test("just publish --locally builds the app and installs it in ~/Applications", async () => {
-  const publish = await dryRun("publish", "--locally");
-  equal(publish.ok, true);
-  match(publish.script, /^just _install-locally$/m);
-  const { script } = await dryRun("_install-locally");
+Deno.test("just app builds the app and installs it in ~/Applications", async () => {
+  const { ok, script } = await dryRun("app");
+  equal(ok, true);
   match(script, /tauri build/);
   match(script, /cp -R .* ~\/Applications\/memo\.app/);
-});
-
-Deno.test("just publish <version> starts the Release workflow", async () => {
-  const publish = await dryRun("publish", "0.3.0");
-  equal(publish.ok, true);
-  match(publish.script, /^just _release 0\.3\.0$/m);
-  const { script } = await dryRun("_release", "0.3.0");
-  match(script, /^gh workflow run release -f version=0\.3\.0$/m);
-});
-
-Deno.test("just publish refuses to run without a version or --locally", async () => {
-  const { ok, script } = await dryRun("publish");
-  equal(ok, false);
-  match(script, /publish needs a version or --locally/);
 });

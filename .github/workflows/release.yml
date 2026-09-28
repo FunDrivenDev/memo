@@ -1,45 +1,82 @@
-# Publishes a version from main: start it from the Actions tab or with
-# `gh workflow run release -f version=0.2.0`. Only the app build needs macOS; Linux
-# checks the request beforehand, then scans the app, commits, tags and releases the
-# version, and pushes the app to the Homebrew tap.
+# Releases main after CI passes on it. Each successful CI run on a push waits 5 minutes,
+# then goes on only if its commit is still main's head, so commits merged close together
+# ship as one release. The version bumps the patch of the last tag, or the minor or major
+# when a pull request merged since carries the `minor` or `major` label. Only the app
+# build needs macOS; Linux scans the app, tags the commit, releases it, and pushes the app
+# to the Homebrew tap. Every step skips what already exists, so "Re-run failed jobs"
+# finishes a broken release.
 
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: The version to publish, such as 0.2.0.
-        required: true
-        type: string
+  # Safe: only a successful run on a push to this repository's main goes on (see settle).
+  workflow_run: # zizmor: ignore[dangerous-triggers]
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
 
 permissions: {}
 
+# One release at a time. GitHub keeps a single run waiting behind the running one, and a
+# newer run replaces it, so a burst of merges leaves one run to release them all.
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
-  preflight:
+  settle:
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
-      actions: read
       contents: read
+      pull-requests: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Check main, the version, and CI on main's head
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          # The tags and the commits since the last one.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Wait for merges to settle, then choose the version
+        id: version
         run: |
-          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo "::error::release from main, not $GITHUB_REF"; exit 1; }
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$VERSION is not a semantic version"; exit 1; }
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" >/dev/null 2>&1; then echo "::error::v$VERSION already exists"; exit 1; fi
-          ci=$(gh run list --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" --workflow CI --json status,conclusion --jq '.[0] | "\(.status) \(.conclusion)"')
-          [[ "$ci" == "completed success" ]] || { echo "::error::CI has not passed on $GITHUB_SHA (${ci:-no run})"; exit 1; }
+          sleep 300
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          [[ "$head" == "$HEAD_SHA" ]] || { echo "main moved on to $head, whose run releases this commit too"; exit 0; }
+
+          # A tag already on the commit is a release to finish, done once published.
+          tagged=$(git tag --points-at "$HEAD_SHA" --list 'v*' | head -1)
+          if [[ -n "$tagged" ]]; then
+            [[ "$(gh release view "$tagged" --json isDraft --jq .isDraft 2>/dev/null)" != false ]] || { echo "$tagged is already released"; exit 0; }
+            echo "version=${tagged#v}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          IFS=. read -r major minor patch <<< "${last#v}"
+          labels=$(git rev-list "$last..$HEAD_SHA" | while read -r sha; do
+            gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" --jq '.[] | select(.merged_at) | .labels[].name'
+          done)
+          if grep -qx major <<< "$labels"; then version="$((major + 1)).0.0"
+          elif grep -qx minor <<< "$labels"; then version="$major.$((minor + 1)).0"
+          else version="$major.$minor.$((patch + 1))"
+          fi
+          echo "$last -> $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
 
   build:
-    needs: preflight
+    needs: settle
+    if: needs.settle.outputs.version != ''
     runs-on: macos-latest
     timeout-minutes: 45
     permissions:
@@ -47,6 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
@@ -57,27 +95,24 @@ jobs:
       - name: Install the dependencies from the lockfiles
         run: just install frozen
 
+      # The version goes into this build only; main keeps whatever Cargo.toml says.
       - name: Set the version, build and zip the app
         run: |
           just set-version "$VERSION"
           just build
           just package "$VERSION"
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.settle.outputs.version }}
 
-      # The versioned manifests go along, so the release job commits what was built.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release
-          path: |
-            src-tauri/Cargo.toml
-            src-tauri/Cargo.lock
-            src-tauri/target/dist/
+          path: src-tauri/target/dist/
           if-no-files-found: error
           retention-days: 7
 
   release:
-    needs: build
+    needs: [settle, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Holds SIGNING_KEY and TAP_TOKEN.
@@ -85,11 +120,13 @@ jobs:
     permissions:
       contents: write
     env:
-      VERSION: ${{ inputs.version }}
-      ARCHIVE: src-tauri/target/dist/memo-${{ inputs.version }}-macos-arm64.zip
+      VERSION: ${{ needs.settle.outputs.version }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      ARCHIVE: src-tauri/target/dist/memo-${{ needs.settle.outputs.version }}-macos-arm64.zip
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
@@ -100,15 +137,20 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release
-          path: src-tauri
+          path: src-tauri/target/dist
 
       - name: Scan the app for secrets and home directory paths
         run: |
           unzip -q "$ARCHIVE" -d "$RUNNER_TEMP/unpacked"
           just scan-app "$RUNNER_TEMP/unpacked/memo.app"
 
-      - name: Commit, tag and push the version
+      - name: Tag the commit
         run: |
+          if tagged=$(gh api "repos/$GITHUB_REPOSITORY/commits/v$VERSION" --jq .sha 2>/dev/null); then
+            [[ "$tagged" == "$HEAD_SHA" ]] || { echo "::error::v$VERSION already tags $tagged"; exit 1; }
+            echo "v$VERSION already tags $HEAD_SHA"
+            exit 0
+          fi
           key=$(mktemp)
           trap 'rm -f "$key"' EXIT
           printf '%s\n' "$SIGNING_KEY" > "$key"
@@ -116,25 +158,33 @@ jobs:
           git config user.email "stuff@fundriven.dev"
           git config gpg.format ssh
           git config user.signingkey "$key"
-          git diff --quiet || git commit --quiet --gpg-sign -m "Publish $VERSION" src-tauri/Cargo.toml src-tauri/Cargo.lock
-          git tag --sign "v$VERSION" -m "memo $VERSION"
+          git tag --sign "v$VERSION" -m "memo $VERSION" "$HEAD_SHA"
           gh auth setup-git
-          # Atomic: if main moved since the run started, neither the commit nor the tag lands.
-          git push --atomic origin HEAD:main "v$VERSION"
+          git push origin "v$VERSION"
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
 
+      # Drafted, filled, then published, as a published release may be immutable.
       - name: Release the app
-        run: gh release create "v$VERSION" --verify-tag --title "memo $VERSION" --generate-notes "$ARCHIVE"
+        run: |
+          if [[ "$(gh release view "v$VERSION" --json isDraft --jq .isDraft 2>/dev/null)" == false ]]; then
+            echo "v$VERSION is already released"
+            exit 0
+          fi
+          gh release view "v$VERSION" >/dev/null 2>&1 \
+            || gh release create "v$VERSION" --verify-tag --draft --title "memo $VERSION" --generate-notes
+          gh release upload "v$VERSION" "$ARCHIVE" --clobber
+          gh release edit "v$VERSION" --draft=false
         env:
           GH_TOKEN: ${{ github.token }}
 
+      # Skips a cask already at this version.
       - name: Push the app to the Homebrew tap
         uses: FunDrivenDev/homebrew-tap/.github/actions/publish-cask@4cadfc0c521cb71d38ea087046501c261e0e8dd5
         with:
           cask: memo
-          version: ${{ inputs.version }}
+          version: ${{ needs.settle.outputs.version }}
           archive: ${{ env.ARCHIVE }}
           definition: packaging/memo.rb
           token: ${{ secrets.TAP_TOKEN }}
