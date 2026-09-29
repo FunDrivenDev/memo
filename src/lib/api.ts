@@ -109,6 +109,8 @@ export interface Rendered {
 export interface SessionDefaults {
   workdir: string;
   prompt: string;
+  /** The existing folders sessions started in, the usual ones first. */
+  recent: string[];
 }
 
 export const library = () => invoke<Library>("library");

@@ -5,21 +5,32 @@
 
   // A text field for a folder path, completed from the disk as it is typed: ↑ ↓ pick a folder, ⌘↑ ⌘↓ the first or
   // last, ⇥ or a click takes it and lists its subfolders, ↵ takes it as is, Escape closes the list.
-  let { value = $bindable(""), input = $bindable(), placeholder = "" }: {
+  // `suggestions` come first: all of them until the field is typed in, then those containing what is typed; a click
+  // takes one as is.
+  let { value = $bindable(""), input = $bindable(), placeholder = "", suggestions = [] }: {
     value?: string;
     input?: HTMLInputElement;
     placeholder?: string;
+    suggestions?: string[];
   } = $props();
 
   let completion = $state<Completion>({ folders: [], denied: null });
   let highlighted = $state(-1);
   let focused = $state(false);
   let closed = $state(false);
+  let typed = $state(false);
   let list: HTMLUListElement | undefined = $state();
   /** Drops the answers to older values. */
   let request = 0;
 
-  const options = $derived(completion.folders.filter((f) => f !== value));
+  const suggested = $derived.by(() => {
+    const needle = value.trim().replace(/\/+$/, "").toLowerCase();
+    return suggestions.filter((s) => s !== value && (!typed || s.toLowerCase().includes(needle)));
+  });
+  const options = $derived([
+    ...suggested,
+    ...completion.folders.filter((f) => f !== value && !suggested.includes(f)),
+  ]);
   const open = $derived(focused && !closed && (options.length > 0 || completion.denied !== null));
 
   $effect(() => {
@@ -44,6 +55,14 @@
     input?.focus();
   }
 
+  /** Takes a suggestion as is, closing the list; a folder of the disk lists its subfolders. */
+  function click(option: string) {
+    if (suggested.includes(option)) {
+      value = option;
+      closed = true;
+    } else take(`${option}/`);
+  }
+
   function onKeydown(event: KeyboardEvent) {
     if (!open) return;
     const n = options.length;
@@ -65,7 +84,10 @@
     {placeholder}
     spellcheck="false"
     autocomplete="off"
-    oninput={() => (closed = false)}
+    oninput={() => {
+      closed = false;
+      typed = true;
+    }}
     onfocus={() => (focused = true)}
     onblur={() => (focused = false)}
     onkeydown={onKeydown}
@@ -84,7 +106,7 @@
           {#each options as option, i (option)}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <li role="option" aria-selected={i === highlighted} class:highlighted={i === highlighted}
-              onclick={() => take(`${option}/`)}>{option}</li>
+              class:suggested={i < suggested.length} onclick={() => click(option)}>{option}</li>
           {/each}
         </ul>
       {/if}
@@ -132,6 +154,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     cursor: pointer;
+  }
+
+  /* The last suggestion, when folders of the disk follow. */
+  li.suggested:has(+ li:not(.suggested)) {
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--surface0);
   }
 
   li:hover,

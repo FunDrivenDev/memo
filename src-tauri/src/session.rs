@@ -1,8 +1,89 @@
-//! Starts a Claude Code session on a note, in a new terminal window.
+//! Starts a Claude Code session on a note, in a new terminal window, and remembers the
+//! folders sessions start in, to offer the usual ones first.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use serde::{Deserialize, Serialize};
+
+/// A folder a session started in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Workdir {
+    /// As typed, `~` for the home directory.
+    pub path: String,
+    /// How many sessions started there.
+    pub uses: u32,
+    /// When the last one did, in milliseconds since the Unix epoch.
+    pub last: u64,
+}
+
+/// The most folders remembered; the least used go first, never the one just used.
+const REMEMBERED: usize = 30;
+
+const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// Where memo remembers them: `workdirs.json` beside its settings.
+pub fn workdirs_file(settings_file: &Path) -> PathBuf {
+    settings_file.with_file_name("workdirs.json")
+}
+
+/// The remembered folders; a missing or unreadable file holds none.
+pub fn load_workdirs(file: &Path) -> Vec<Workdir> {
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_workdirs(file: &Path, workdirs: &[Workdir]) -> Result<(), String> {
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let text = serde_json::to_string_pretty(workdirs).map_err(|e| e.to_string())?;
+    std::fs::write(file, text + "\n").map_err(|e| e.to_string())
+}
+
+/// Counts a session started in `path` at `now`.
+pub fn record(workdirs: &mut Vec<Workdir>, path: &str, now: u64) {
+    match workdirs.iter_mut().find(|w| w.path == path) {
+        Some(w) => {
+            w.uses += 1;
+            w.last = now;
+        }
+        None => workdirs.push(Workdir {
+            path: path.to_string(),
+            uses: 1,
+            last: now,
+        }),
+    }
+    if workdirs.len() > REMEMBERED {
+        let kept: Vec<String> = rank(workdirs, now)
+            .into_iter()
+            .filter(|p| p != path)
+            .take(REMEMBERED - 1)
+            .collect();
+        workdirs.retain(|w| w.path == path || kept.contains(&w.path));
+    }
+}
+
+/// The folders, most used first, a use counting for less as it ages: in full for a day,
+/// half for a week, a quarter for a month, an eighth after.
+pub fn rank(workdirs: &[Workdir], now: u64) -> Vec<String> {
+    let score = |w: &Workdir| {
+        let age = now.saturating_sub(w.last);
+        let weight = match age {
+            a if a < DAY_MS => 8,
+            a if a < 7 * DAY_MS => 4,
+            a if a < 30 * DAY_MS => 2,
+            _ => 1,
+        };
+        u64::from(w.uses) * weight
+    };
+    let mut ranked: Vec<&Workdir> = workdirs.iter().collect();
+    ranked.sort_by(|a, b| score(b).cmp(&score(a)).then(b.last.cmp(&a.last)));
+    ranked.into_iter().map(|w| w.path.clone()).collect()
+}
 
 /// The git repository the note mentions most, else the home directory.
 ///
@@ -144,6 +225,37 @@ mod tests {
         );
         assert_eq!(guess_workdir(&doc, &home, &[notes]), home.join("Code/b"));
         assert_eq!(guess_workdir("no paths here", &home, &[]), home);
+    }
+
+    #[test]
+    fn ranks_the_folders_by_uses_as_they_age() {
+        let now = 100 * DAY_MS;
+        let mut dirs = Vec::new();
+        for _ in 0..3 {
+            record(&mut dirs, "~/old", now - 60 * DAY_MS);
+        }
+        record(&mut dirs, "~/new", now);
+        record(&mut dirs, "~/week", now - 2 * DAY_MS);
+        record(&mut dirs, "~/week", now - 2 * DAY_MS);
+        assert_eq!(dirs[0].uses, 3);
+        // 3 uses two months ago weigh 3, 1 today 8, 2 this week 8, broken by the latest.
+        assert_eq!(rank(&dirs, now), ["~/new", "~/week", "~/old"]);
+    }
+
+    #[test]
+    fn forgets_the_least_used_folders() {
+        let mut dirs = Vec::new();
+        for _ in 0..3 {
+            record(&mut dirs, "~/kept", 0);
+        }
+        // Thirty more, each later than the one before: the older ones go first.
+        for i in 1..=30 {
+            record(&mut dirs, &format!("~/{i}"), i);
+        }
+        record(&mut dirs, "~/latest", 31);
+        assert_eq!(dirs.len(), REMEMBERED);
+        let has = |p: &str| dirs.iter().any(|w| w.path == p);
+        assert!(has("~/kept") && has("~/latest") && !has("~/1") && !has("~/2") && has("~/3"));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as api from "./api";
   import type { Note } from "./api";
+  import FolderInput from "./FolderInput.svelte";
   import Modal from "./Modal.svelte";
 
   let { note, onDone, onClose }: { note: Note; onDone: (message: string, error?: boolean) => void; onClose: () => void } =
@@ -8,6 +9,8 @@
 
   let workdir = $state("");
   let prompt = $state("");
+  /** The folders sessions started in, the usual ones first. */
+  let recent = $state<string[]>([]);
   let loading = $state(true);
   let promptField: HTMLTextAreaElement | undefined = $state();
 
@@ -17,6 +20,7 @@
       .then((defaults) => {
         workdir = defaults.workdir;
         prompt = defaults.prompt;
+        recent = defaults.recent;
         loading = false;
       })
       .catch((e) => onDone(String(e), true));
@@ -49,12 +53,12 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="form" onkeydown={onKeydown}>
       <label>
-        <span>Working directory</span>
-        <input bind:value={workdir} spellcheck="false" />
-      </label>
-      <label>
         <span>Prompt</span>
         <textarea bind:this={promptField} bind:value={prompt} rows="4" spellcheck="false"></textarea>
+      </label>
+      <label>
+        <span>Folder: the usual ones first, or type a path</span>
+        <FolderInput bind:value={workdir} suggestions={recent} />
       </label>
       <div class="actions">
         <span class="hint">Opens a terminal window there and runs <code>claude</code> with this prompt.</span>
@@ -82,7 +86,6 @@
     color: var(--subtext);
   }
 
-  input,
   textarea {
     font-family: var(--mono);
     font-size: 12.5px;

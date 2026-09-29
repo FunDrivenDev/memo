@@ -30,8 +30,6 @@ The note itself is never touched: comments live in `comments.json` beside memo's
 
 A click on a highlight or a comment focuses it, as does the reading cursor on its paragraph: `r` then resolves it, which deletes it, and `u` brings it back while the message shows; `↵` edits it while reading. The Comments tab lists them all, one section per note, with a search field (`/` from anywhere): `↓` `↑` go through them and show each in its note, `⇥` goes to the next note, `↵` edits, `r` resolves. Trashing a note drops its comments.
 
-A thin column beside the note recalls the keys that act on it, as they change with what is going on; a window narrower than 1000 pixels hides it.
-
 ## Keys
 
 | Key | Action |
@@ -42,7 +40,8 @@ A thin column beside the note recalls the keys that act on it, as they change wi
 | `↵` | Read the note: `↓` `↑` move through its paragraphs, list items, code and tables, skipping headings, and keep the current one mid-height; `⌘↑` `⌘↓` go to the first or last; `⇧↓` `⇧↑` span more of them; `↵` edits the comment on them; `esc` goes back to the list |
 | `⇥` `⇧⇥` | Next or previous folder |
 | `space` `⇧space` | Scroll the note by a page |
-| `c` | Comment on the selected text, or on the paragraphs read; otherwise start a Claude Code session from the note |
+| `c` | Comment on the selected text, or on the paragraphs read |
+| `s` | Start a Claude Code session from the note |
 | `r` | Resolve the focused comment |
 | `/` | Search the comments |
 | `a` | Archive the note (in the archive: restore it) |
@@ -56,7 +55,7 @@ A thin column beside the note recalls the keys that act on it, as they change wi
 
 Every search word must match fuzzily, in the title or on one line; notes whose title matches come first, above those matching in the content only; as in fzf, `'word` matches exactly, `^word` at the start, `word$` at the end, and `!word` excludes. Opening a search result scrolls the note to the matching line.
 
-"Start a session" guesses the working directory from the git repository the note mentions most (home otherwise) and proposes a prompt; both can be edited. It then opens a Ghostty window (Terminal.app when Ghostty is missing) running `claude '<prompt>'` in your usual shell. The first time, macOS asks to let memo control the terminal.
+`s` starts a session: it proposes a prompt and a folder, both editable. The folder is the git repository the note mentions most, else the folder sessions usually start in, else home. The folder field lists the usual folders first, the most used lately at the top; typing filters them by any part of their path (`memo` finds `~/Code/rlvdx/memo`) and completes a path from the disk as in the settings. memo remembers the folders in `workdirs.json` beside its settings, 30 at most. The session opens a Ghostty window (Terminal.app when Ghostty is missing) running `claude '<prompt>'` in your usual shell. The first time, macOS asks to let memo control the terminal.
 
 ## Security
 

@@ -38,6 +38,12 @@ function mockTauri({ notes, paragraphs, after = "", comments = [] }: Fixture) {
       comments,
     },
     render: { html, words: paragraphs * 2 },
+    session_defaults: {
+      workdir: "~/Code/memo",
+      prompt: "Read the plan.",
+      recent: ["~/Code/memo", "~/Code/site", "~/Notes"],
+    },
+    complete_folder: { folders: [], denied: null },
   };
   // The comments as the Rust side keeps them, for the tests to read back.
   const saved = comments as Record<string, unknown>[];
@@ -55,6 +61,7 @@ function mockTauri({ notes, paragraphs, after = "", comments = [] }: Fixture) {
     __TAURI_INTERNALS__: {
       invoke: (cmd: string, args: Record<string, unknown>) => {
         if (cmd === "copy") Object.assign(globalThis, { copied: args.text });
+        if (cmd === "start_session") Object.assign(globalThis, { session: args });
         const comment = commentCommands[cmd];
         if (comment) {
           // Through JSON, as Tauri sends them: the front end's objects may be Svelte proxies.

@@ -10,7 +10,6 @@
   import Palette, { type Command } from "./lib/Palette.svelte";
   import SessionDialog from "./lib/SessionDialog.svelte";
   import Settings from "./lib/Settings.svelte";
-  import Shortcuts, { type Hint } from "./lib/Shortcuts.svelte";
   import Sidebar, { type Pane } from "./lib/Sidebar.svelte";
 
   type Overlay = "palette" | "session" | "help" | "settings";
@@ -38,8 +37,7 @@
   let comments = $state<Comment[]>([]);
   let commentQuery = $state("");
   let selectedCommentId = $state<string | null>(null);
-  /** Whether text of the note is selected, and the comment `r` would resolve: both change the keys offered. */
-  let selecting = $state(false);
+  /** The comment `r` would resolve. */
   let focusedComment = $state<Comment | null>(null);
   let commentList: CommentList | undefined = $state();
   let focusLine = $state<number | null>(null);
@@ -243,12 +241,6 @@
     if (comment) resolveComment(comment);
   }
 
-  /** `c`: comments the selection or the items read, else starts a Claude Code session. */
-  function commentOrSession() {
-    if (view?.comment()) return;
-    if (selected) overlay = "session";
-  }
-
   /** Jumps to the first note of the next (or previous) folder holding any. */
   function moveFolder(delta: 1 | -1) {
     const withNotes = folders.filter((f) => ordered.some((n) => n.folder === f.name));
@@ -344,7 +336,7 @@
   const revealNote = withNote((n) => api.reveal(n.id).catch((e) => show(String(e), true)));
 
   const commands: Command[] = $derived([
-    { id: "session", label: "Start a Claude Code session", keys: "c", run: withNote(() => (overlay = "session")) },
+    { id: "session", label: "Start a Claude Code session", keys: "s", run: withNote(() => (overlay = "session")) },
     {
       id: "archive",
       label: selectedArchived ? "Restore note from the archive" : "Archive note",
@@ -367,39 +359,6 @@
     { id: "settings", label: "Settings: folders and archive", keys: "⌘,", run: () => (overlay = "settings") },
     { id: "help", label: "Keyboard shortcuts", keys: "?", run: () => (overlay = "help") },
   ]);
-
-  /** The keys that act on the note shown, beside it. */
-  const hints = $derived.by(() => {
-    const hot = (keys: string, label: string): Hint => ({ keys, label, hot: true });
-    const comment: Hint[] = [];
-    if (selecting) comment.push(hot("c", "Comment on the selection"));
-    else if (reading) comment.push({ keys: "c", label: "Comment on the item" }, { keys: "⇧↓  ⇧↑", label: "Span more items" });
-    else comment.push({ keys: "↵  c", label: "Read, then comment" });
-    if (focusedComment) {
-      if (reading || pane === "comments") comment.push(hot("↵", "Edit the comment"));
-      comment.push(hot("r", "Resolve the comment"));
-    }
-    comment.push({ keys: "/", label: "Search the comments" });
-    const note: Hint[] = [];
-    if (toast?.undo) note.push(hot("u", "Undo"));
-    if (reading) note.push({ keys: "↓  ↑", label: "Next item" }, { keys: "esc", label: "Back to the list" });
-    else if (pane === "comments") note.push({ keys: "↓  ↑", label: "Next comment" }, { keys: "⇥", label: "Next note" });
-    else note.push({ keys: "↵", label: "Read item by item" }, { keys: "↓  ↑", label: "Next note" });
-    if (!selecting && !reading) note.push({ keys: "c", label: "Claude Code session" });
-    note.push(
-      { keys: "a", label: selectedArchived ? "Restore" : "Archive" },
-      { keys: "t", label: "Trash" },
-      { keys: "e", label: "Open in editor" },
-      { keys: "o", label: "Reveal in Finder" },
-      { keys: "space", label: "Page down" },
-    );
-    const app: Hint[] = [{ keys: "⌘K", label: "Search notes" }, { keys: "?", label: "All keys" }];
-    return [
-      { title: "Comments", hints: comment },
-      { title: "Note", hints: note },
-      { title: "memo", hints: app },
-    ];
-  });
 
   function onKeydown(event: KeyboardEvent) {
     if (event.metaKey && event.key === "k") {
@@ -438,7 +397,8 @@
       Tab: () => (pane === "comments" ? moveCommentedNote : moveFolder)(event.shiftKey ? -1 : 1),
       " ": () => view?.scroll(event.shiftKey ? -1 : 1),
       "?": () => (overlay = "help"),
-      c: commentOrSession,
+      c: () => view?.comment(),
+      s: withNote(() => (overlay = "session")),
       r: resolveFocused,
       "/": searchComments,
       a: withNote(archiveOrRestore),
@@ -496,7 +456,6 @@
       {focusLine}
       comments={comments.filter((c) => c.note === selected.id)}
       focusComment={pane === "comments" ? selectedCommentId : null}
-      bind:selecting
       bind:focused={focusedComment}
       onOpenNote={openNote}
       onError={(m) => show(m, true)}
@@ -504,7 +463,6 @@
       onEditComment={editComment}
       onResolveComment={resolveComment}
     />
-    <Shortcuts groups={hints} />
   {:else if loaded}
     <div class="blank" data-tauri-drag-region>
       {#if pane === "comments"}
@@ -585,7 +543,7 @@
 <style>
   .layout {
     display: grid;
-    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
     /* Holds the row to the window: a sidebar longer than it would otherwise stretch both panes past the bottom. */
     grid-template-rows: minmax(0, 1fr);
     height: 100%;

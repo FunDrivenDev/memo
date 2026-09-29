@@ -14,7 +14,6 @@
     focusLine,
     comments,
     focusComment = null,
-    selecting = $bindable(false),
     focused = $bindable(null),
     onOpenNote,
     onError,
@@ -32,7 +31,6 @@
     /** A comment to scroll to and focus, from the list of comments. */
     focusComment?: string | null;
     /** Whether text of the note is selected, which `c` then comments. */
-    selecting?: boolean;
     /** The comment `r` resolves and `↵` edits, if any. */
     focused?: Comment | null;
     onOpenNote: (id: string) => boolean;
@@ -290,7 +288,6 @@
 
   function onSelectionChange() {
     const range = selection();
-    selecting = !!range;
     if (!range || !scroller) {
       selectionButton = null;
       return;

@@ -32,6 +32,9 @@ struct App {
     settings_file: PathBuf,
     comments_file: PathBuf,
     comments: Mutex<Vec<Comment>>,
+    workdirs_file: PathBuf,
+    /// The folders sessions started in.
+    workdirs: Mutex<Vec<session::Workdir>>,
     folders: Mutex<Vec<Folder>>,
     notes: Mutex<Vec<Note>>,
     /// The archive folder, which may not exist yet.
@@ -209,8 +212,10 @@ struct Rendered {
 
 #[derive(Serialize)]
 struct SessionDefaults {
-    workdir: PathBuf,
+    workdir: String,
     prompt: String,
+    /// The existing folders sessions started in, the usual ones first.
+    recent: Vec<String>,
 }
 
 #[tauri::command]
@@ -477,20 +482,40 @@ fn session_defaults(app: State<App>, id: &str) -> Result<SessionDefaults, String
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
+    let recent: Vec<String> = session::rank(&app.workdirs.lock().unwrap(), comments::now())
+        .into_iter()
+        .filter(|w| config::exists(w, &app.home))
+        .collect();
+    // A note naming no repository starts where sessions usually do.
+    let guess = session::guess_workdir(&content, &app.home, &ignore);
+    let workdir = match recent.first() {
+        Some(usual) if guess == app.home => usual.clone(),
+        _ => config::tilde(&guess, &app.home),
+    };
     Ok(SessionDefaults {
-        workdir: session::guess_workdir(&content, &app.home, &ignore),
+        workdir,
         prompt: session::default_prompt(&path, &folder),
+        recent,
     })
 }
 
 #[tauri::command]
 fn start_session(app: State<App>, workdir: &str, prompt: &str) -> Result<(), String> {
-    let workdir = if workdir.starts_with('~') {
-        config::expand(workdir, &app.home)
-    } else {
-        PathBuf::from(workdir)
-    };
-    session::launch(&workdir, prompt)
+    let typed = config::clean_folder(workdir)?;
+    let path = config::expand(&typed, &app.home);
+    let path = path.canonicalize().unwrap_or(path);
+    session::launch(&path, prompt)?;
+    let mut workdirs = app.workdirs.lock().unwrap();
+    session::record(
+        &mut workdirs,
+        &config::tilde(&path, &app.home),
+        comments::now(),
+    );
+    // The session has started either way; only the memory of its folder is lost.
+    if let Err(e) = session::save_workdirs(&app.workdirs_file, &workdirs) {
+        eprintln!("memo: could not remember the session's folder: {e}");
+    }
+    Ok(())
 }
 
 /// Shows the note in Finder.
@@ -570,10 +595,13 @@ fn open(args: &[&OsStr]) -> Result<(), String> {
 pub fn run() {
     let home = std::env::home_dir().expect("no home directory");
     let comments_file = comments::file(&config::settings_file(&home));
+    let workdirs_file = session::workdirs_file(&config::settings_file(&home));
     tauri::Builder::default()
         .manage(App {
             comments: Mutex::new(comments::load(&comments_file)),
             comments_file,
+            workdirs: Mutex::new(session::load_workdirs(&workdirs_file)),
+            workdirs_file,
             settings_file: config::settings_file(&home),
             home,
             folders: Mutex::default(),

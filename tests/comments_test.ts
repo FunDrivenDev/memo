@@ -164,17 +164,3 @@ browserTest("the Comments pane lists and searches the comments, and ↵ edits th
     await app.close();
   }
 });
-
-browserTest("the column of keys beside the note offers c over a selection", async () => {
-  const app = await openApp({ notes: 1, paragraphs: 3 }, { width: 1400, height: 700 });
-  try {
-    const keys = app.page.locator("aside:has(dl)");
-    ok((await keys.textContent())?.includes("Archive"));
-    await select(app.page, 0, 0, 5);
-    await app.page.locator("dd.hot", { hasText: "Comment on the selection" }).waitFor();
-    await app.page.setViewportSize({ width: 900, height: 700 });
-    ok(!(await keys.isVisible()), "a narrow window hides it");
-  } finally {
-    await app.close();
-  }
-});
