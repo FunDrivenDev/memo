@@ -72,7 +72,7 @@ Every tool is pinned in `mise.toml`, and the Justfile is the entry point. On a f
 ```sh
 just install             # install the tools, the dependencies, headless Chromium for the tests and the pre-push secrets hook
 just dev                 # run with hot reload
-just check               # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, workflows, spelling, secrets), then test
+just check               # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, shell scripts, workflows, spelling, secrets), then test
 just audit               # secrets and personal data in the history, vulnerable dependencies, unsafe workflows
 just app                 # build the release bundle into ~/Applications and open it
 just cask                # macOS: check the cask against Homebrew's style, audit and deprecation rules
