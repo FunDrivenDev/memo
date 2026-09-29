@@ -82,8 +82,9 @@ memo is ad-hoc signed, without an Apple Developer ID, so the cask lifts the quar
 Every tool is pinned in `mise.toml`, and the Justfile is the entry point. On a fresh clone, run `just install` first:
 
 ```sh
-just install             # install the tools, the dependencies, headless Chromium for the tests and the pre-push secrets hook
-just dev                 # run with hot reload
+just install             # install the tools, the dependencies, headless Chromium for the tests and the git hooks
+just dev                 # run with hot reload, the dev server on a free port so other projects' can run alongside
+just dev-check           # check `just dev` would start, without opening the app: the debug build, and the dev server serving the front end
 just check               # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, shell scripts, workflows, spelling, secrets), then test
 just audit               # secrets and personal data in the history, vulnerable dependencies, unsafe workflows
 just app                 # build the release bundle into ~/Applications and open it
@@ -92,5 +93,7 @@ just cask <zip>          # the same, then install that archive from the cask int
 ```
 
 Deno installs the npm packages itself; npm is never used.
+
+The pre-commit hook runs `just check dev-check`, and the pre-push hook looks for secrets.
 
 The note's column takes 66% of its pane, and at least 60 characters when the window is narrow; `--note-width` in `src/app.css` sets that share.

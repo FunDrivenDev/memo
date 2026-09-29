@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Refuse a commit that fails the checks, or with which `just dev` would not start.
+set -euo pipefail
+exec mise exec -- just check dev-check
