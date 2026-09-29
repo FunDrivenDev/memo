@@ -101,6 +101,20 @@ export interface Hit {
   snippets: Snippet[];
 }
 
+export interface CommentHit {
+  id: string;
+  /** The note it is on. */
+  note: string;
+  score: number;
+  /** Its matching lines, numbered in the comment. */
+  snippets: Snippet[];
+}
+
+export interface Results {
+  notes: Hit[];
+  comments: CommentHit[];
+}
+
 export interface Rendered {
   html: string;
   words: number;
@@ -126,7 +140,8 @@ export const completeFolder = (typed: string) => invoke<Completion>("complete_fo
 /** Opens System Settings where memo can be allowed into `folder`. */
 export const openPrivacySettings = (folder: string) => invoke<void>("open_privacy_settings", { folder });
 export const render = (id: string) => invoke<Rendered>("render", { id });
-export const search = (query: string, archived: boolean) => invoke<Hit[]>("search", { query, archived });
+/** The notes matching, and apart from them, the comments on those notes matching. */
+export const search = (query: string, archived: boolean) => invoke<Results>("search", { query, archived });
 export const archive = (id: string) => invoke<Moved>("archive", { id });
 export const restore = (id: string) => invoke<Moved>("restore", { id });
 /** Moves the last archived or restored note back. */

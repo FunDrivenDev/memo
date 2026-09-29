@@ -38,6 +38,18 @@ function mockTauri({ notes, paragraphs, after = "", comments = [] }: Fixture) {
       comments,
     },
     render: { html, words: paragraphs * 2 },
+    // Every search finds the second comment, when there is one.
+    search: {
+      notes: [],
+      comments: (comments as { id: string; note: string; body: string }[]).slice(1, 2).map((
+        { id, note, body },
+      ) => ({
+        id,
+        note,
+        score: 1,
+        snippets: [{ line: 1, text: body, indices: [0] }],
+      })),
+    },
     session_defaults: {
       workdir: "~/Code/memo",
       prompt: "Read the plan.",

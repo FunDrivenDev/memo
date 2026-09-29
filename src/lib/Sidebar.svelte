@@ -39,6 +39,9 @@
     folders.map((folder) => ({ folder, notes: notes.filter((n) => n.folder === folder.name) })),
   );
 
+  /** The tabs, with the key that shows each. */
+  const tabs = [["notes", "Notes", "⌘1"], ["archive", "Archive", "⌘2"], ["comments", "Comments", "⌘3"]] as const;
+
   let list: HTMLElement | undefined = $state();
 
   // Keep the selected card in view as the keyboard moves through the list.
@@ -56,8 +59,8 @@
       <kbd>⌘K</kbd>
     </button>
     <div class="panes" role="tablist">
-      {#each [["notes", "Notes"], ["archive", "Archive"], ["comments", "Comments"]] as const as [id, label] (id)}
-        <button role="tab" aria-selected={pane === id} class:active={pane === id} onclick={() => onPane(id)}>
+      {#each tabs as [id, label, key] (id)}
+        <button role="tab" aria-selected={pane === id} class:active={pane === id} title={key} onclick={() => onPane(id)}>
           {label} <span class="count">{counts[id]}</span>
         </button>
       {/each}

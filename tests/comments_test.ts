@@ -164,3 +164,40 @@ browserTest("the Comments pane lists and searches the comments, and ↵ edits th
     await app.close();
   }
 });
+
+browserTest(
+  "⌘K finds the text of comments, apart from the notes, and opens one in the Comments tab",
+  async () => {
+    const app = await openApp({
+      notes: 1,
+      paragraphs: 3,
+      comments: [
+        comment("a", { kind: "block", start: 1, end: 1, quote: "Paragraph 0" }, "First thought"),
+        comment("b", { kind: "block", start: 5, end: 5, quote: "Paragraph 2" }, "Second thought"),
+      ],
+    });
+    try {
+      await app.page.keyboard.press("Meta+k");
+      await app.page.keyboard.type("second");
+      await app.page.locator(".divider", { hasText: "In the comments" }).waitFor();
+      await app.page.keyboard.press("Enter");
+      equal(await app.page.locator("aside nav .card.selected .body").textContent(), "Second thought");
+      await app.page.locator(".comment.focused").waitFor();
+    } finally {
+      await app.close();
+    }
+  },
+);
+
+browserTest("⌘1 ⌘2 ⌘3 show the Notes, Archive and Comments tabs", async () => {
+  const app = await openApp({ notes: 1, paragraphs: 3 });
+  try {
+    const active = () => app.page.locator("[role=tab][aria-selected=true]").textContent();
+    for (const [key, tab] of [["3", "Comments"], ["2", "Archive"], ["1", "Notes"]]) {
+      await app.page.keyboard.press(`Meta+${key}`);
+      ok((await active())?.startsWith(tab), `⌘${key} shows ${tab}`);
+    }
+  } finally {
+    await app.close();
+  }
+});

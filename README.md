@@ -39,6 +39,7 @@ A click on a highlight or a comment focuses it, as does the reading cursor on it
 | `⌘↑` `⌘↓` | First or last note |
 | `↵` | Read the note: `↓` `↑` move through its paragraphs, list items, code and tables, skipping headings, and keep the current one mid-height; `⌘↑` `⌘↓` go to the first or last; `⇧↓` `⇧↑` span more of them; `↵` edits the comment on them; `esc` goes back to the list |
 | `⇥` `⇧⇥` | Next or previous folder |
+| `⌘1` `⌘2` `⌘3` | Notes, Archive or Comments tab |
 | `space` `⇧space` | Scroll the note by a page |
 | `c` | Comment on the selected text, or on the paragraphs read |
 | `s` | Start a Claude Code session from the note |
@@ -53,7 +54,7 @@ A click on a highlight or a comment focuses it, as does the reading cursor on it
 | `⌘,` | Settings: folders and archive |
 | `?` | Help |
 
-Every search word must match fuzzily, in the title or on one line; notes whose title matches come first, above those matching in the content only; as in fzf, `'word` matches exactly, `^word` at the start, `word$` at the end, and `!word` excludes. Opening a search result scrolls the note to the matching line.
+Every search word must match fuzzily, in the title or on one line; notes whose title matches come first, above those matching in the content only; as in fzf, `'word` matches exactly, `^word` at the start, `word$` at the end, and `!word` excludes. Opening a search result scrolls the note to the matching line. The text of the comments is searched by the same rules, and its matches listed apart, under "In the comments", after the notes; opening one shows it in the Comments tab.
 
 `s` starts a session: it proposes a prompt and a folder, both editable. The folder is the git repository the note mentions most, else the folder sessions usually start in, else home. The folder field lists the usual folders first, the most used lately at the top; typing filters them by any part of their path (`memo` finds `~/Code/rlvdx/memo`) and completes a path from the disk as in the settings. memo remembers the folders in `workdirs.json` beside its settings, 30 at most. The session opens a Ghostty window (Terminal.app when Ghostty is missing) running `claude '<prompt>'` in your usual shell. The first time, macOS asks to let memo control the terminal.
 

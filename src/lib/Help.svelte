@@ -11,6 +11,7 @@
     ["⌘↑  ⌘↓", "First or last note; while reading, first or last paragraph"],
     ["↵  esc", "Read the note, skipping headings; back to the list"],
     ["⇥  ⇧⇥", "Next or previous folder"],
+    ["⌘1  ⌘2  ⌘3", "Notes, Archive or Comments tab"],
     ["space  ⇧space", "Page down or up in the note"],
     ["c", "Comment on the selected text or the paragraphs read"],
     ["s", "Start a Claude Code session from the note, in a folder of your choice"],

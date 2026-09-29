@@ -347,9 +347,14 @@ fn render(app: State<App>, id: &str) -> Result<Rendered, String> {
 }
 
 #[tauri::command]
-fn search(app: State<App>, query: &str, archived: bool) -> Vec<search::Hit> {
+fn search(app: State<App>, query: &str, archived: bool) -> search::Results {
     let notes = if archived { &app.archived } else { &app.notes };
-    search::search(query, &notes.lock().unwrap(), 50)
+    search::search_all(
+        query,
+        &notes.lock().unwrap(),
+        &app.comments.lock().unwrap(),
+        50,
+    )
 }
 
 /// Moves a note of the folders to `<archive>/<folder name>`.

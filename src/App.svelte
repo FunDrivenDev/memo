@@ -181,6 +181,13 @@
     selectComment(commentItems.find((i) => i.comment.note === target)?.comment.id ?? null);
   }
 
+  /** Shows a comment in its note, from the Comments tab, whatever its search filtered out. */
+  function openComment(id: string) {
+    commentQuery = "";
+    showPane("comments");
+    selectComment(id);
+  }
+
   async function searchComments() {
     showPane("comments");
     await tick();
@@ -343,12 +350,9 @@
       keys: "a",
       run: withNote(archiveOrRestore),
     },
-    {
-      id: "pane",
-      label: pane === "archive" ? "Show the notes" : "Show the archive",
-      run: () => showPane(pane === "archive" ? "notes" : "archive"),
-    },
-    { id: "comments", label: "Show the comments", run: () => showPane("comments") },
+    { id: "notes", label: "Show the notes", keys: "⌘1", run: () => showPane("notes") },
+    { id: "archived", label: "Show the archive", keys: "⌘2", run: () => showPane("archive") },
+    { id: "comments", label: "Show the comments", keys: "⌘3", run: () => showPane("comments") },
     { id: "search-comments", label: "Search the comments", keys: "/", run: searchComments },
     { id: "comment", label: "Comment on the selection or the item read", keys: "c", run: () => view?.comment() },
     { id: "resolve", label: "Resolve the comment", keys: "r", run: resolveFocused },
@@ -371,6 +375,12 @@
     if (event.metaKey && event.key === ",") {
       event.preventDefault();
       overlay = "settings";
+      return;
+    }
+    const panes: Record<string, Pane> = { "1": "notes", "2": "archive", "3": "comments" };
+    if (event.metaKey && panes[event.key] && !overlay) {
+      event.preventDefault();
+      showPane(panes[event.key]!);
       return;
     }
     if (event.metaKey && event.key === "r") {
@@ -506,6 +516,10 @@
       overlay = null;
       openNote(id);
       focusLine = line;
+    }}
+    onOpenComment={(id) => {
+      overlay = null;
+      openComment(id);
     }}
     onClose={() => (overlay = null)}
   />
