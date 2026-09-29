@@ -38,10 +38,6 @@ check: lint test
 dev:
     scripts/dev.sh
 
-# Check `just dev` would start, without opening the app: the debug build, and the dev server serving the front end.
-dev-check:
-    scripts/dev.sh check
-
 # Build the release app bundle, with home directory paths trimmed to `~` in the binary.
 build:
     RUSTFLAGS="--remap-path-prefix=$HOME=~" deno task tauri build --bundles app

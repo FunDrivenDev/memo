@@ -32,9 +32,8 @@ Deno.test("just install delegates to scripts/install.sh, passing the mode", asyn
   match(script, /scripts\/install\.sh 'frozen'/);
 });
 
-Deno.test("just dev and just dev-check go through scripts/dev.sh, which picks a free port", async () => {
+Deno.test("just dev goes through scripts/dev.sh, which picks a free port", async () => {
   match((await dryRun("dev")).script, /^scripts\/dev\.sh$/m);
-  match((await dryRun("dev-check")).script, /^scripts\/dev\.sh check$/m);
   match(await Deno.readTextFile("scripts/dev.sh"), /Deno\.listen\(\{ hostname: "127\.0\.0\.1", port: 0 \}\)/);
 });
 
