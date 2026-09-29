@@ -2,8 +2,9 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-manifest := "src-tauri/Cargo.toml"
-app := "src-tauri/target/release/bundle/macos/memo.app"
+# Exported, so the scripts under scripts/ read them too.
+export MANIFEST := "src-tauri/Cargo.toml"
+export APP := "src-tauri/target/release/bundle/macos/memo.app"
 
 # List the recipes.
 default:
@@ -11,55 +12,23 @@ default:
 
 # Set up a fresh clone: the tools, the dependencies and the pre-push secrets hook. `mode` is empty, `frozen` (from the lockfiles, as in CI), `clean` (wipe, then frozen) or `update`.
 install mode="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mise install --quiet
-    git config core.hooksPath .githooks  # the pre-push secrets check
-    case "{{ mode }}" in
-        "") deno install --quiet && cargo fetch --manifest-path {{ manifest }} ;;
-        frozen) deno install --quiet --frozen && cargo fetch --locked --manifest-path {{ manifest }} ;;
-        clean) rm -rf node_modules && cargo clean --manifest-path {{ manifest }} && deno install --quiet --frozen && cargo fetch --locked --manifest-path {{ manifest }} ;;
-        update) deno outdated --update --latest && cargo update --manifest-path {{ manifest }} ;;
-        *) echo "unknown mode {{ mode }}: frozen, clean or update" >&2; exit 2 ;;
-    esac
-    deno run --quiet --allow-all npm:playwright install --only-shell chromium  # for the browser tests
+    scripts/install.sh {{ quote(mode) }}
 
 # Format everything, fixing what the formatters can.
 fmt:
-    cargo fmt --manifest-path {{ manifest }}
+    cargo fmt --manifest-path {{ MANIFEST }}
     deno fmt --quiet
     taplo fmt --colors never 2>&1 | { grep -v ' INFO ' || true; }
     rumdl fmt --quiet .
     just --fmt --unstable
 
-# Lint everything; `family` narrows it to rust, web, toml, markdown, just, workflows, spelling or secrets.
+# Lint everything; `family` narrows it to rust, web, toml, markdown, just, shell, workflows, spelling or secrets.
 lint family="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    want() { [[ -z "{{ family }}" || "{{ family }}" == "$1" ]]; }
-    case "{{ family }}" in ""|rust|web|toml|markdown|just|workflows|spelling|secrets) ;; *) echo "unknown family {{ family }}" >&2; exit 2 ;; esac
-    if want rust; then
-        cargo fmt --manifest-path {{ manifest }} --check
-        cargo clippy --manifest-path {{ manifest }} --all-targets --locked -- -D warnings
-    fi
-    if want web; then
-        deno fmt --check --quiet
-        deno lint --quiet
-        deno task --quiet web:check
-    fi
-    if want toml; then
-        taplo fmt --colors never --check 2>&1 | { grep -v ' INFO ' || true; }
-        taplo lint --colors never 2>&1 | { grep -v ' INFO ' || true; }
-    fi
-    if want markdown; then rumdl check --quiet .; fi
-    if want just; then just --fmt --unstable --check; fi
-    if want workflows; then actionlint; fi
-    if want spelling; then typos; fi
-    if want secrets; then gitleaks git --config .gitleaks.toml --redact --no-banner --log-level warn .; fi
+    scripts/lint.sh {{ quote(family) }}
 
 # Run the Rust tests, then the Deno ones, which drive the front end in headless Chromium.
 test:
-    cargo nextest run --manifest-path {{ manifest }} --locked
+    cargo nextest run --manifest-path {{ MANIFEST }} --locked
     deno test --quiet --allow-all tests/
 
 # Lint, then test.
@@ -72,93 +41,44 @@ dev:
 # Build the release app bundle, with home directory paths trimmed to `~` in the binary.
 build:
     RUSTFLAGS="--remap-path-prefix=$HOME=~" deno task tauri build --bundles app
-    @du -sh {{ app }} | sed 's/\t/  /'
+    @du -sh {{ APP }} | sed 's/\t/  /'
 
 # Build the app into ~/Applications and open it.
 app: build
     mkdir -p ~/Applications
     rm -rf ~/Applications/memo.app
-    cp -R {{ app }} ~/Applications/memo.app
+    cp -R {{ APP }} ~/Applications/memo.app
     open ~/Applications/memo.app
 
 # What CI runs on Linux: check, build for the host without bundling, and lint the macOS code (clang compiles its Objective-C without an SDK).
 ci: check
     deno task tauri build --no-bundle
-    CC_aarch64_apple_darwin=clang cargo clippy --manifest-path {{ manifest }} --target aarch64-apple-darwin --all-targets --locked -- -D warnings
+    CC_aarch64_apple_darwin=clang cargo clippy --manifest-path {{ MANIFEST }} --target aarch64-apple-darwin --all-targets --locked -- -D warnings
 
 # Audit security: secrets or personal data anywhere in the history, vulnerable or unknown-source dependencies, unsafe workflows.
 audit:
     gitleaks git --config .gitleaks.toml --redact --no-banner --log-level warn .
-    cargo deny --manifest-path {{ manifest }} --config deny.toml check advisories sources
+    cargo deny --manifest-path {{ MANIFEST }} --config deny.toml check advisories sources
     deno audit
     zizmor --quiet .
 
 # Refuse an app bundle that carries a secret or a home directory path, before it goes public.
-scan-app path=app:
+scan-app path=APP:
     gitleaks dir --config .gitleaks.toml --redact --no-banner --log-level warn "{{ path }}"
     strings -a -n 6 "{{ path }}/Contents/MacOS/memo" | gitleaks stdin --config .gitleaks.toml --redact --no-banner --log-level warn
 
 # Set `version` in Cargo.toml and its lockfile.
 set-version version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    [[ "{{ version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "{{ version }} is not a semantic version" >&2; exit 2; }
-    perl -0pi -e 's/(\[package\]\nname = "memo"\nversion = )"[^"]*"/$1"{{ version }}"/' {{ manifest }}
-    cargo update --manifest-path {{ manifest }} --workspace --quiet
+    scripts/set-version.sh {{ quote(version) }}
 
 # Zip the release bundle as src-tauri/target/dist/memo-<version>-macos-arm64.zip, keeping its signature.
 package version:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    archive="src-tauri/target/dist/memo-{{ version }}-macos-arm64.zip"
-    mkdir -p "$(dirname "$archive")"
-    rm -f "$archive"
-    ditto -c -k --keepParent {{ app }} "$archive"
+    scripts/package.sh {{ quote(version) }}
 
 # Check the cask on macOS against Homebrew's style and audit rules, where deprecations fail; given an app archive, also install it from the cask into a scratch folder and check the app lost its quarantine flag.
 cask archive="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # Developer mode turns a deprecation into an error, and lets a plain untap leave installed casks alone.
-    export HOMEBREW_DEVELOPER=1 HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
-    scratch=$(mktemp -d)
-    # A copy of the user's tap trust, so trusting the scratch tap leaves theirs as it was.
-    trust="${XDG_CONFIG_HOME:-}/homebrew/trust.json"
-    [[ -n "${XDG_CONFIG_HOME:-}" && -f "$trust" ]] || trust=~/.homebrew/trust.json
-    export XDG_CONFIG_HOME="$scratch/config"
-    mkdir -p "$XDG_CONFIG_HOME/homebrew"
-    [[ ! -f "$trust" ]] || cp "$trust" "$XDG_CONFIG_HOME/homebrew/trust.json"
-    tap=memo-check/scratch
-    installed=""
-    # Never `untap --force`: it uninstalls every installed cask sharing a token with the tap, the user's memo included.
-    cleanup() {
-        [[ -z "$installed" ]] || brew uninstall --cask "$tap/memo-check" >/dev/null || true
-        brew untap "$tap" >/dev/null 2>&1 || true
-        rm -rf "$scratch"
-    }
-    trap cleanup EXIT
-    brew tap-new --no-git "$tap" >/dev/null
-    brew trust --tap "$tap" >/dev/null
-    casks="$(brew --repo "$tap")/Casks"
-    mkdir -p "$casks"
-    cp packaging/memo.rb "$casks/memo.rb"
-    brew style "$tap/memo"
-    brew audit --cask --strict "$tap/memo"
-    [[ -n "{{ archive }}" ]] || exit 0
-
-    # Its own token, so the install never touches an installed memo.
-    archive=$(realpath "{{ archive }}")
-    sed -e 's/^cask "memo"/cask "memo-check"/' \
-        -e "s|^  sha256 .*|  sha256 \"$(shasum -a 256 "$archive" | cut -d' ' -f1)\"|" \
-        -e "s|^  url .*|  url \"file://$archive\"|" \
-        packaging/memo.rb > "$casks/memo-check.rb"
-    installed=1
-    brew install --cask --appdir="$scratch/Applications" "$tap/memo-check"
-    if xattr -p com.apple.quarantine "$scratch/Applications/memo.app" >/dev/null 2>&1; then
-        echo "memo.app still carries the quarantine flag after install" >&2
-        exit 1
-    fi
+    scripts/cask.sh {{ quote(archive) }}
 
 # Print the size of the release binary and bundle, and of the front end.
 size:
-    @du -sh src-tauri/target/release/memo {{ app }} dist 2>/dev/null | sed 's/\t/  /' || true
+    @du -sh src-tauri/target/release/memo {{ APP }} dist 2>/dev/null | sed 's/\t/  /' || true
