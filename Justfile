@@ -34,9 +34,9 @@ test:
 # Lint, then test.
 check: lint test
 
-# Run the app with hot reload of the front end.
+# Run the app with hot reload of the front end, served on a free port.
 dev:
-    deno task tauri dev
+    scripts/dev.sh
 
 # Build the release app bundle, with home directory paths trimmed to `~` in the binary.
 build:

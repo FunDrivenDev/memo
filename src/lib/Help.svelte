@@ -7,13 +7,18 @@
   const keys: [string, string][] = [
     ["⌘K", "Command palette: search titles and content"],
     ["↓  ↑", "Next or previous note; while reading, next or previous paragraph"],
+    ["⇧↓  ⇧↑", "While reading, span more paragraphs, to comment on them together"],
     ["⌘↑  ⌘↓", "First or last note; while reading, first or last paragraph"],
     ["↵  esc", "Read the note, skipping headings; back to the list"],
     ["⇥  ⇧⇥", "Next or previous folder"],
+    ["⌘1  ⌘2  ⌘3", "Notes, Archive or Comments tab"],
     ["space  ⇧space", "Page down or up in the note"],
-    ["c", "Start a Claude Code session from the note"],
+    ["c", "Comment on the selected text or the paragraphs read"],
+    ["s", "Start a Claude Code session from the note, in a folder of your choice"],
+    ["r", "Resolve the focused comment, which deletes it"],
+    ["/", "Search the comments"],
     ["a", "Archive the note; in the archive, restore it"],
-    ["u", "Undo the archive, restore or trash, while its message shows"],
+    ["u", "Undo the archive, restore, trash or resolve, while its message shows"],
     ["t", "Move the note to the Trash"],
     ["e", "Open the note in the default editor"],
     ["o", "Reveal the note in Finder"],
@@ -32,6 +37,13 @@
       <dd>{what}</dd>
     {/each}
   </dl>
+  <h4>Comments</h4>
+  <p>
+    Kept beside the note, which stays as it is. A comment goes under the passage or paragraphs it is on, and follows
+    them when the note changes; one whose text is gone shows at the top. <kbd>↵</kbd> edits the focused comment while
+    reading or in the Comments tab, <kbd>⌘↵</kbd> saves, <kbd>esc</kbd> cancels. A click on a highlight or a comment
+    focuses it; the <kbd>+</kbd> beside a paragraph comments on it.
+  </p>
   <h4>Search</h4>
   <p>
     Every word must match, fuzzily, in the title or on one line. As in fzf: <code>'word</code> matches exactly,

@@ -4,7 +4,7 @@ set -euo pipefail
 
 mode=${1:-}
 mise install --quiet
-git config core.hooksPath .githooks # the pre-push secrets check
+git config core.hooksPath .githooks # the pre-commit checks and the pre-push secrets check
 case "$mode" in
   "") deno install --quiet && cargo fetch --manifest-path "$MANIFEST" ;;
   frozen) deno install --quiet --frozen && cargo fetch --locked --manifest-path "$MANIFEST" ;;

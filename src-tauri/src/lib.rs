@@ -3,6 +3,7 @@
 //! The front end only ever names a note by its path; every command checks that path
 //! against the configured folders before touching the disk.
 
+mod comments;
 mod config;
 mod notes;
 mod render;
@@ -22,12 +23,18 @@ use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use comments::{Anchor, Comment};
 use config::Folder;
 use notes::Note;
 
 struct App {
     home: PathBuf,
     settings_file: PathBuf,
+    comments_file: PathBuf,
+    comments: Mutex<Vec<Comment>>,
+    workdirs_file: PathBuf,
+    /// The folders sessions started in.
+    workdirs: Mutex<Vec<session::Workdir>>,
     folders: Mutex<Vec<Folder>>,
     notes: Mutex<Vec<Note>>,
     /// The archive folder, which may not exist yet.
@@ -87,7 +94,29 @@ impl App {
             archive,
             archive_folders,
             archived,
+            comments: self.comments.lock().unwrap().clone(),
         }
+    }
+
+    /// Changes the comments and saves them, returning them all.
+    fn change_comments<T>(
+        &self,
+        change: impl FnOnce(&mut Vec<Comment>) -> Result<T, String>,
+    ) -> Result<Vec<Comment>, String> {
+        let mut comments = self.comments.lock().unwrap();
+        let mut next = comments.clone();
+        change(&mut next)?;
+        comments::save(&self.comments_file, &next)?;
+        *comments = next;
+        Ok(comments.clone())
+    }
+
+    /// Carries the comments of a note memo moved to its new path.
+    fn follow_move(&self, from: &Path, to: &Path) {
+        let _ = self.change_comments(|c| {
+            comments::rename(c, from, to);
+            Ok(())
+        });
     }
 
     /// The path of a note of the folders or of the archive.
@@ -107,6 +136,7 @@ impl App {
             ));
         }
         let to = notes::move_into(&from, dir)?;
+        self.follow_move(&from, &to);
         *self.last_move.lock().unwrap() = Some(Move {
             from,
             to: to.clone(),
@@ -145,6 +175,7 @@ struct Library {
     archive: PathBuf,
     archive_folders: Vec<Folder>,
     archived: Vec<Note>,
+    comments: Vec<Comment>,
 }
 
 /// What an archive, restore or undo did, with the library after it.
@@ -181,8 +212,10 @@ struct Rendered {
 
 #[derive(Serialize)]
 struct SessionDefaults {
-    workdir: PathBuf,
+    workdir: String,
     prompt: String,
+    /// The existing folders sessions started in, the usual ones first.
+    recent: Vec<String>,
 }
 
 #[tauri::command]
@@ -314,9 +347,14 @@ fn render(app: State<App>, id: &str) -> Result<Rendered, String> {
 }
 
 #[tauri::command]
-fn search(app: State<App>, query: &str, archived: bool) -> Vec<search::Hit> {
+fn search(app: State<App>, query: &str, archived: bool) -> search::Results {
     let notes = if archived { &app.archived } else { &app.notes };
-    search::search(query, &notes.lock().unwrap(), 50)
+    search::search_all(
+        query,
+        &notes.lock().unwrap(),
+        &app.comments.lock().unwrap(),
+        50,
+    )
 }
 
 /// Moves a note of the folders to `<archive>/<folder name>`.
@@ -376,6 +414,7 @@ fn undo(app: State<App>, handle: AppHandle) -> Result<Moved, String> {
         return Err(format!("{} exists again", last.from.display()));
     }
     notes::move_file(&last.to, &last.from)?;
+    app.follow_move(&last.to, &last.from);
     Ok(Moved {
         id: last.from,
         library: app.reload(&handle),
@@ -384,8 +423,46 @@ fn undo(app: State<App>, handle: AppHandle) -> Result<Moved, String> {
 
 #[tauri::command]
 fn trash(app: State<App>, handle: AppHandle, id: &str) -> Result<Library, String> {
-    notes::trash(&app.resolve(id)?)?;
+    let path = app.resolve(id)?;
+    notes::trash(&path)?;
+    let _ = app.change_comments(|c| {
+        comments::forget(c, &path);
+        Ok(())
+    });
     Ok(app.reload(&handle))
+}
+
+/// Comments a note, on the passage or blocks `anchor` names.
+#[tauri::command]
+fn add_comment(
+    app: State<App>,
+    note: &str,
+    body: &str,
+    anchor: Anchor,
+) -> Result<Vec<Comment>, String> {
+    let note = app.resolve(note)?.to_string_lossy().into_owned();
+    app.change_comments(|c| comments::add(c, note, body, anchor, comments::now()))
+}
+
+#[tauri::command]
+fn edit_comment(app: State<App>, id: &str, body: &str) -> Result<Vec<Comment>, String> {
+    app.change_comments(|c| comments::edit(c, id, body, comments::now()))
+}
+
+/// Resolving a comment deletes it; the front end keeps it to undo that.
+#[tauri::command]
+fn resolve_comment(app: State<App>, id: &str) -> Result<Vec<Comment>, String> {
+    app.change_comments(|c| comments::remove(c, id))
+}
+
+/// Puts back a resolved comment.
+#[tauri::command]
+fn restore_comment(app: State<App>, comment: Comment) -> Result<Vec<Comment>, String> {
+    app.resolve(&comment.note)?;
+    app.change_comments(|c| {
+        comments::restore(c, comment);
+        Ok(())
+    })
 }
 
 #[tauri::command]
@@ -410,20 +487,40 @@ fn session_defaults(app: State<App>, id: &str) -> Result<SessionDefaults, String
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
+    let recent: Vec<String> = session::rank(&app.workdirs.lock().unwrap(), comments::now())
+        .into_iter()
+        .filter(|w| config::exists(w, &app.home))
+        .collect();
+    // A note naming no repository starts where sessions usually do.
+    let guess = session::guess_workdir(&content, &app.home, &ignore);
+    let workdir = match recent.first() {
+        Some(usual) if guess == app.home => usual.clone(),
+        _ => config::tilde(&guess, &app.home),
+    };
     Ok(SessionDefaults {
-        workdir: session::guess_workdir(&content, &app.home, &ignore),
+        workdir,
         prompt: session::default_prompt(&path, &folder),
+        recent,
     })
 }
 
 #[tauri::command]
 fn start_session(app: State<App>, workdir: &str, prompt: &str) -> Result<(), String> {
-    let workdir = if workdir.starts_with('~') {
-        config::expand(workdir, &app.home)
-    } else {
-        PathBuf::from(workdir)
-    };
-    session::launch(&workdir, prompt)
+    let typed = config::clean_folder(workdir)?;
+    let path = config::expand(&typed, &app.home);
+    let path = path.canonicalize().unwrap_or(path);
+    session::launch(&path, prompt)?;
+    let mut workdirs = app.workdirs.lock().unwrap();
+    session::record(
+        &mut workdirs,
+        &config::tilde(&path, &app.home),
+        comments::now(),
+    );
+    // The session has started either way; only the memory of its folder is lost.
+    if let Err(e) = session::save_workdirs(&app.workdirs_file, &workdirs) {
+        eprintln!("memo: could not remember the session's folder: {e}");
+    }
+    Ok(())
 }
 
 /// Shows the note in Finder.
@@ -502,8 +599,14 @@ fn open(args: &[&OsStr]) -> Result<(), String> {
 
 pub fn run() {
     let home = std::env::home_dir().expect("no home directory");
+    let comments_file = comments::file(&config::settings_file(&home));
+    let workdirs_file = session::workdirs_file(&config::settings_file(&home));
     tauri::Builder::default()
         .manage(App {
+            comments: Mutex::new(comments::load(&comments_file)),
+            comments_file,
+            workdirs: Mutex::new(session::load_workdirs(&workdirs_file)),
+            workdirs_file,
             settings_file: config::settings_file(&home),
             home,
             folders: Mutex::default(),
@@ -546,6 +649,10 @@ pub fn run() {
             restore,
             undo,
             trash,
+            add_comment,
+            edit_comment,
+            resolve_comment,
+            restore_comment,
             session_defaults,
             start_session,
             reveal,

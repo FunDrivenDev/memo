@@ -29,6 +29,32 @@ export interface Library {
   /** The archive's sections, one per folder notes were archived from. */
   archive_folders: Folder[];
   archived: Note[];
+  comments: Comment[];
+}
+
+/** What a comment is attached to. */
+export interface Anchor {
+  /** A selected passage, or whole paragraphs, list items, code blocks or tables. */
+  kind: "text" | "block";
+  /** The source lines it spanned when written. */
+  start: number;
+  end: number;
+  /** The text it covers, whitespace collapsed. */
+  quote: string;
+  /** A few characters around a passage, whitespace removed, telling repeats apart. */
+  prefix: string;
+  suffix: string;
+}
+
+export interface Comment {
+  id: string;
+  /** The note's path. */
+  note: string;
+  body: string;
+  anchor: Anchor;
+  /** Milliseconds since the Unix epoch. */
+  created: number;
+  updated: number;
 }
 
 /** What an archive, restore or undo did: the note's new path, and the library after it. */
@@ -75,6 +101,20 @@ export interface Hit {
   snippets: Snippet[];
 }
 
+export interface CommentHit {
+  id: string;
+  /** The note it is on. */
+  note: string;
+  score: number;
+  /** Its matching lines, numbered in the comment. */
+  snippets: Snippet[];
+}
+
+export interface Results {
+  notes: Hit[];
+  comments: CommentHit[];
+}
+
 export interface Rendered {
   html: string;
   words: number;
@@ -83,6 +123,8 @@ export interface Rendered {
 export interface SessionDefaults {
   workdir: string;
   prompt: string;
+  /** The existing folders sessions started in, the usual ones first. */
+  recent: string[];
 }
 
 export const library = () => invoke<Library>("library");
@@ -98,12 +140,19 @@ export const completeFolder = (typed: string) => invoke<Completion>("complete_fo
 /** Opens System Settings where memo can be allowed into `folder`. */
 export const openPrivacySettings = (folder: string) => invoke<void>("open_privacy_settings", { folder });
 export const render = (id: string) => invoke<Rendered>("render", { id });
-export const search = (query: string, archived: boolean) => invoke<Hit[]>("search", { query, archived });
+/** The notes matching, and apart from them, the comments on those notes matching. */
+export const search = (query: string, archived: boolean) => invoke<Results>("search", { query, archived });
 export const archive = (id: string) => invoke<Moved>("archive", { id });
 export const restore = (id: string) => invoke<Moved>("restore", { id });
 /** Moves the last archived or restored note back. */
 export const undo = () => invoke<Moved>("undo");
 export const trash = (id: string) => invoke<Library>("trash", { id });
+export const addComment = (note: string, body: string, anchor: Anchor) =>
+  invoke<Comment[]>("add_comment", { note, body, anchor });
+export const editComment = (id: string, body: string) => invoke<Comment[]>("edit_comment", { id, body });
+/** Deletes the comment; `restoreComment` puts it back. */
+export const resolveComment = (id: string) => invoke<Comment[]>("resolve_comment", { id });
+export const restoreComment = (comment: Comment) => invoke<Comment[]>("restore_comment", { comment });
 export const sessionDefaults = (id: string) => invoke<SessionDefaults>("session_defaults", { id });
 export const startSession = (workdir: string, prompt: string) =>
   invoke<void>("start_session", { workdir, prompt });

@@ -12,7 +12,7 @@
 
 <script lang="ts">
   import * as api from "./api";
-  import type { Hit } from "./api";
+  import type { CommentHit, Hit } from "./api";
   import Highlight from "./Highlight.svelte";
   import { listStep } from "./keys";
   import { reveal } from "./scroll";
@@ -24,6 +24,7 @@
     archive = $bindable(),
     commands,
     onOpen,
+    onOpenComment,
     onClose,
   }: {
     /** Every note of the folders, most recent first. */
@@ -34,15 +35,18 @@
     archive: boolean;
     commands: Command[];
     onOpen: (id: string, line: number | null) => void;
+    onOpenComment: (id: string) => void;
     onClose: () => void;
   } = $props();
 
   type Item =
     | { kind: "note"; note: Note; hit: Hit | null }
+    | { kind: "comment"; note: Note; hit: CommentHit }
     | { kind: "command"; command: Command };
 
   let query = $state("");
   let hits = $state<Hit[]>([]);
+  let commentHits = $state<CommentHit[]>([]);
   let active = $state(0);
   let input: HTMLInputElement | undefined = $state();
   let list: HTMLElement | undefined = $state();
@@ -59,10 +63,16 @@
         .map((command) => ({ kind: "command" as const, command }));
     }
     if (!query.trim()) return notes.map((note) => ({ kind: "note" as const, note, hit: null }));
-    return hits.flatMap((hit) => {
-      const note = byId.get(hit.id);
-      return note ? [{ kind: "note" as const, note, hit }] : [];
-    });
+    return [
+      ...hits.flatMap((hit) => {
+        const note = byId.get(hit.id);
+        return note ? [{ kind: "note" as const, note, hit }] : [];
+      }),
+      ...commentHits.flatMap((hit) => {
+        const note = byId.get(hit.note);
+        return note ? [{ kind: "comment" as const, note, hit }] : [];
+      }),
+    ];
   });
 
   // Search as the query changes; a slower, older answer never replaces a newer one.
@@ -74,17 +84,26 @@
     const mine = ++sequence;
     const timer = setTimeout(() => {
       api.search(q, inArchive).then((result) => {
-        if (mine === sequence) hits = result;
+        if (mine !== sequence) return;
+        hits = result.notes;
+        commentHits = result.comments;
       });
     }, 60);
     return () => clearTimeout(timer);
   });
 
-  /** Index of the first content-only hit when title hits come before it, where a divider goes. */
-  const firstContentOnly = $derived.by(() => {
-    const i = items.findIndex((item) => item.kind === "note" && item.hit && !item.hit.in_title);
-    return i > 0 ? i : -1;
+  /** Where a divider goes: before the first content-only hit when title hits come before it, before the comments. */
+  const dividers = $derived.by(() => {
+    const at = new Map<number, string>();
+    const content = items.findIndex((item) => item.kind === "note" && item.hit && !item.hit.in_title);
+    if (content > 0) at.set(content, "In the content only");
+    const comments = items.findIndex((item) => item.kind === "comment");
+    if (comments >= 0) at.set(comments, "In the comments");
+    return at;
   });
+
+  const key = (item: Item) =>
+    item.kind === "command" ? item.command.id : item.kind === "comment" ? `comment:${item.hit.id}` : item.note.id;
 
   $effect(() => {
     input?.focus();
@@ -100,6 +119,8 @@
     if (item.kind === "command") {
       onClose();
       item.command.run();
+    } else if (item.kind === "comment") {
+      onOpenComment(item.hit.id);
     } else {
       onOpen(item.note.id, item.hit?.snippets[0]?.line ?? null);
     }
@@ -139,8 +160,8 @@
       />
     </div>
     <ul bind:this={list}>
-      {#each items as item, i (item.kind === "note" ? item.note.id : item.command.id)}
-        {#if i === firstContentOnly}<li class="divider">In the content only</li>{/if}
+      {#each items as item, i (key(item))}
+        {#if dividers.has(i)}<li class="divider">{dividers.get(i)}</li>{/if}
         <li>
           <button
             class:active={i === active}
@@ -151,6 +172,12 @@
             {#if item.kind === "command"}
               <span class="title">{item.command.label}</span>
               {#if item.command.keys}<kbd>{item.command.keys}</kbd>{/if}
+            {:else if item.kind === "comment"}
+              <span class="title">{item.note.title}</span>
+              <span class="meta">comment · {item.note.folder}</span>
+              {#each item.hit.snippets as snippet (snippet.line)}
+                <span class="snippet comment"><Highlight text={snippet.text} indices={snippet.indices} /></span>
+              {/each}
             {:else}
               <span class="title"><Highlight text={item.note.title} indices={item.hit?.title_indices} /></span>
               <span class="meta">{item.note.folder} · {age(item.note.modified, clock.now)}</span>
@@ -282,6 +309,12 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .snippet.comment {
+    padding-left: 3.2em;
+    font-family: inherit;
+    font-style: italic;
   }
 
   .line {

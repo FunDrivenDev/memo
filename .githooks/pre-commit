@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Refuse a commit that fails the lint or the tests.
+set -euo pipefail
+exec mise exec -- just check
