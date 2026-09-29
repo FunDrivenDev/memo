@@ -1,8 +1,9 @@
 <script lang="ts" module>
-  export type Pane = "notes" | "archive";
+  export type Pane = "notes" | "archive" | "comments";
 </script>
 
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import type { Folder, Note } from "./api";
   import { reveal } from "./scroll";
   import { age, clock, longDate } from "./time.svelte";
@@ -17,6 +18,7 @@
     onSelect,
     onPane,
     onPalette,
+    commentPane,
   }: {
     pane: Pane;
     /** The folders and notes of the pane shown. */
@@ -29,6 +31,8 @@
     onSelect: (id: string) => void;
     onPane: (pane: Pane) => void;
     onPalette: () => void;
+    /** The list of comments, shown in their pane instead of the notes. */
+    commentPane: Snippet;
   } = $props();
 
   const sections = $derived(
@@ -52,7 +56,7 @@
       <kbd>⌘K</kbd>
     </button>
     <div class="panes" role="tablist">
-      {#each [["notes", "Notes"], ["archive", "Archive"]] as const as [id, label] (id)}
+      {#each [["notes", "Notes"], ["archive", "Archive"], ["comments", "Comments"]] as const as [id, label] (id)}
         <button role="tab" aria-selected={pane === id} class:active={pane === id} onclick={() => onPane(id)}>
           {label} <span class="count">{counts[id]}</span>
         </button>
@@ -60,6 +64,9 @@
     </div>
   </header>
 
+  {#if pane === "comments"}
+    {@render commentPane()}
+  {:else}
   <nav bind:this={list}>
     {#each sections as { folder, notes: items } (folder.path)}
       <section>
@@ -84,6 +91,7 @@
       </section>
     {/each}
   </nav>
+  {/if}
 </aside>
 
 <style>

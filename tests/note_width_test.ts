@@ -10,7 +10,8 @@ const share = (page: Page) =>
 const near = (actual: number, expected: number) => Math.abs(actual - expected) < 0.01;
 
 browserTest("the note takes two thirds of its pane, and keeps them when the window resizes", async () => {
-  const app = await openApp({ notes: 1, paragraphs: 5 }, { width: 1200, height: 700 });
+  // Wide enough that two thirds of the pane, beside the list and the column of keys, pass 60 characters.
+  const app = await openApp({ notes: 1, paragraphs: 5 }, { width: 1400, height: 700 });
   try {
     const before = await share(app.page);
     ok(near(before, 0.66), `66% of the pane, not ${(before * 100).toFixed(1)}%`);

@@ -8,10 +8,12 @@ export interface Fixture {
   paragraphs: number;
   /** HTML rendered after the paragraphs. */
   after?: string;
+  /** The comments saved already, as the Rust side keeps them. */
+  comments?: unknown[];
 }
 
 /** Stands in for the Rust commands: one folder of notes, each a column of numbered paragraphs. */
-function mockTauri({ notes, paragraphs, after = "" }: Fixture) {
+function mockTauri({ notes, paragraphs, after = "", comments = [] }: Fixture) {
   const list = Array.from({ length: notes }, (_, i) => ({
     id: `/notes/plans/note-${i}.md`,
     folder: "plans",
@@ -33,14 +35,32 @@ function mockTauri({ notes, paragraphs, after = "" }: Fixture) {
       archive: "/notes/archive",
       archive_folders: [],
       archived: [],
+      comments,
     },
     render: { html, words: paragraphs * 2 },
   };
+  // The comments as the Rust side keeps them, for the tests to read back.
+  const saved = comments as Record<string, unknown>[];
+  let ids = 0;
+  const commentCommands: Record<string, (args: Record<string, unknown>) => void> = {
+    add_comment: ({ note, body, anchor }) =>
+      saved.push({ id: `c${++ids}`, note, body, anchor, created: ids, updated: ids }),
+    edit_comment: ({ id, body }) => Object.assign(saved.find((c) => c.id === id)!, { body }),
+    resolve_comment: ({ id }) => saved.splice(saved.findIndex((c) => c.id === id), 1),
+    restore_comment: ({ comment }) => saved.push(comment as Record<string, unknown>),
+  };
   let callbacks = 0;
   Object.assign(globalThis, {
+    savedComments: saved,
     __TAURI_INTERNALS__: {
       invoke: (cmd: string, args: Record<string, unknown>) => {
         if (cmd === "copy") Object.assign(globalThis, { copied: args.text });
+        const comment = commentCommands[cmd];
+        if (comment) {
+          // Through JSON, as Tauri sends them: the front end's objects may be Svelte proxies.
+          comment(JSON.parse(JSON.stringify(args)));
+          return Promise.resolve(JSON.parse(JSON.stringify(saved)));
+        }
         return Promise.resolve(replies[cmd] ?? null);
       },
       transformCallback: () => ++callbacks,

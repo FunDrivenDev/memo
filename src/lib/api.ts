@@ -29,6 +29,32 @@ export interface Library {
   /** The archive's sections, one per folder notes were archived from. */
   archive_folders: Folder[];
   archived: Note[];
+  comments: Comment[];
+}
+
+/** What a comment is attached to. */
+export interface Anchor {
+  /** A selected passage, or whole paragraphs, list items, code blocks or tables. */
+  kind: "text" | "block";
+  /** The source lines it spanned when written. */
+  start: number;
+  end: number;
+  /** The text it covers, whitespace collapsed. */
+  quote: string;
+  /** A few characters around a passage, whitespace removed, telling repeats apart. */
+  prefix: string;
+  suffix: string;
+}
+
+export interface Comment {
+  id: string;
+  /** The note's path. */
+  note: string;
+  body: string;
+  anchor: Anchor;
+  /** Milliseconds since the Unix epoch. */
+  created: number;
+  updated: number;
 }
 
 /** What an archive, restore or undo did: the note's new path, and the library after it. */
@@ -104,6 +130,12 @@ export const restore = (id: string) => invoke<Moved>("restore", { id });
 /** Moves the last archived or restored note back. */
 export const undo = () => invoke<Moved>("undo");
 export const trash = (id: string) => invoke<Library>("trash", { id });
+export const addComment = (note: string, body: string, anchor: Anchor) =>
+  invoke<Comment[]>("add_comment", { note, body, anchor });
+export const editComment = (id: string, body: string) => invoke<Comment[]>("edit_comment", { id, body });
+/** Deletes the comment; `restoreComment` puts it back. */
+export const resolveComment = (id: string) => invoke<Comment[]>("resolve_comment", { id });
+export const restoreComment = (comment: Comment) => invoke<Comment[]>("restore_comment", { comment });
 export const sessionDefaults = (id: string) => invoke<SessionDefaults>("session_defaults", { id });
 export const startSession = (workdir: string, prompt: string) =>
   invoke<void>("start_session", { workdir, prompt });

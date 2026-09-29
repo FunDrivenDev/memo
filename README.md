@@ -22,19 +22,31 @@ Changing the archive folder leaves the notes already archived where they are: mo
 
 Each existing folder becomes a sidebar section. The section lists the `.md` files directly inside it, most recently modified first. The folders are watched, so new notes appear as Claude writes them.
 
+## Comments
+
+Comments are notes on a note, like the comments of a pull request review. Select text and press `c` (or the Comment button that shows by the selection), or read the note with `↵`, span more paragraphs with `⇧↓` `⇧↑` if needed, and press `c`; the `+` beside a paragraph comments on it with the mouse. `⌘↵` saves. The comment shows under what it is on, highlighted.
+
+The note itself is never touched: comments live in `comments.json` beside memo's settings, and follow a note memo archives, restores or undoes. When the note changes, a comment finds its text again, preferring the place nearest its old lines; one whose text is gone shows at the top of the note, with what it was on.
+
+A click on a highlight or a comment focuses it, as does the reading cursor on its paragraph: `r` then resolves it, which deletes it, and `u` brings it back while the message shows; `↵` edits it while reading. The Comments tab lists them all, one section per note, with a search field (`/` from anywhere): `↓` `↑` go through them and show each in its note, `⇥` goes to the next note, `↵` edits, `r` resolves. Trashing a note drops its comments.
+
+A thin column beside the note recalls the keys that act on it, as they change with what is going on; a window narrower than 1000 pixels hides it.
+
 ## Keys
 
 | Key | Action |
 | --- | --- |
 | `⌘K` | Command palette: fuzzy search over titles and content; start with `>` for commands |
-| `↓` `↑` | Next or previous note |
+| `↓` `↑` | Next or previous note (in the Comments tab: comment) |
 | `⌘↑` `⌘↓` | First or last note |
-| `↵` | Read the note: `↓` `↑` move through its paragraphs, list items, code and tables, skipping headings, and keep the current one mid-height; `⌘↑` `⌘↓` go to the first or last; `esc` goes back to the list |
+| `↵` | Read the note: `↓` `↑` move through its paragraphs, list items, code and tables, skipping headings, and keep the current one mid-height; `⌘↑` `⌘↓` go to the first or last; `⇧↓` `⇧↑` span more of them; `↵` edits the comment on them; `esc` goes back to the list |
 | `⇥` `⇧⇥` | Next or previous folder |
 | `space` `⇧space` | Scroll the note by a page |
-| `c` | Start a Claude Code session from the note |
+| `c` | Comment on the selected text, or on the paragraphs read; otherwise start a Claude Code session from the note |
+| `r` | Resolve the focused comment |
+| `/` | Search the comments |
 | `a` | Archive the note (in the archive: restore it) |
-| `u` | Undo the archive, restore or trash, while its message shows |
+| `u` | Undo the archive, restore, trash or resolve, while its message shows |
 | `t` | Move to the macOS Trash, after a 6-second countdown `u` can cancel |
 | `e` | Open in the default editor |
 | `o` | Reveal in Finder |
@@ -48,7 +60,7 @@ Every search word must match fuzzily, in the title or on one line; notes whose t
 
 ## Security
 
-- The front end touches no file directly: it has no filesystem or shell plugin, and its capabilities stop at events and window dragging. Every command takes a note path, and Rust checks it is a Markdown file directly inside a configured folder before anything else. The folders themselves are set only through the settings window, which stores them in memo's own settings file.
+- The front end touches no file directly: it has no filesystem or shell plugin, and its capabilities stop at events and window dragging. Every command takes a note path, and Rust checks it is a Markdown file directly inside a configured folder before anything else. The folders themselves are set only through the settings window, which stores them in memo's own settings file. Comments go to memo's own `comments.json`, never into the note, and a new or restored one must name a note memo shows.
 - Markdown is rendered by comrak without raw HTML, fenced code is coloured by syntect with bat's grammars, then everything is sanitised by ammonia; the CSP allows only the app's own scripts.
 - The copy button of a code block hands its text to `pbcopy`: the front end can write to the clipboard, never read it.
 - Only `http`, `https` and `mailto` links leave the app, and they open in the default browser. Terminal commands go to osascript as arguments and are shell-quoted, never spliced into the script.
