@@ -59,9 +59,9 @@ Every search word must match fuzzily, in the title or on one line; notes whose t
 brew install fundrivendev/tap/memo
 ```
 
-Every merge to `main` is released once CI passes on it. The Release workflow waits 5 minutes and releases only `main`'s head, so pull requests merged close together ship as one release. It bumps the patch version, or the minor or major one when a pull request in the release carries the `minor` or `major` label. It builds the app on macOS, then, on Linux, scans it for secrets and home directory paths, tags the commit and releases it. It then copies the app to [FunDrivenDev/homebrew-tap](https://github.com/FunDrivenDev/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The tag and the cask commit are signed as Fun Driven Stuff <stuff@fundriven.dev>. If a release fails, "Re-run failed jobs" finishes it.
+Every merge to `main` is released once CI passes on it. The Release workflow waits 5 minutes and releases only `main`'s head, so pull requests merged close together ship as one release. It bumps the patch version, or the minor or major one when a pull request in the release carries the `minor` or `major` label. It builds the app on macOS and installs it there from the cask, then, on Linux, scans it for secrets and home directory paths, tags the commit and releases it. It then copies the app to [FunDrivenDev/homebrew-tap](https://github.com/FunDrivenDev/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The tag and the cask commit are signed as Fun Driven Stuff <stuff@fundriven.dev>. If a release fails, "Re-run failed jobs" finishes it.
 
-Every job runs on GitHub-hosted runners, free and unlimited for a public repository, and on Linux except the app build.
+Every job runs on GitHub-hosted runners, free and unlimited for a public repository, and on Linux except the app build and the cask check.
 
 memo is ad-hoc signed, without an Apple Developer ID, so the cask lifts the quarantine flag Gatekeeper would otherwise block it on.
 
@@ -75,6 +75,8 @@ just dev                 # run with hot reload
 just check               # lint (Rust, Svelte/TypeScript, TOML, Markdown, Justfile, workflows, spelling, secrets), then test
 just audit               # secrets and personal data in the history, vulnerable dependencies, unsafe workflows
 just app                 # build the release bundle into ~/Applications and open it
+just cask                # macOS: check the cask against Homebrew's style, audit and deprecation rules
+just cask <zip>          # the same, then install that archive from the cask into a scratch folder
 ```
 
 Deno installs the npm packages itself; npm is never used.
