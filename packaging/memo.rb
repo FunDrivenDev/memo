@@ -10,14 +10,14 @@ cask "memo" do
   homepage "https://github.com/FunDrivenDev/memo"
 
   depends_on arch: :arm64
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "memo.app"
 
   # memo is ad-hoc signed, not signed with a Developer ID, so Gatekeeper would refuse
   # to open it while it carries the quarantine flag of the download.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/memo.app"]
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/memo.app"]
   end
 
   zap trash: [

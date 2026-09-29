@@ -104,6 +104,16 @@ jobs:
         env:
           VERSION: ${{ needs.settle.outputs.version }}
 
+      - name: Update Homebrew
+        run: brew update --quiet
+
+      # Before anything is published: the cask must still pass Homebrew's rules, and
+      # install this very archive with its quarantine flag lifted.
+      - name: Install the app from the cask
+        run: just cask "src-tauri/target/dist/memo-$VERSION-macos-arm64.zip"
+        env:
+          VERSION: ${{ needs.settle.outputs.version }}
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release
