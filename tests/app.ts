@@ -197,7 +197,10 @@ function mockTauri(
     open_privacy_settings: () => {},
   };
   const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-  let callbacks = 0;
+  // The front end's callbacks, by the id `transformCallback` gives them, and the events they listen to.
+  const callbacks = new Map<number, (event: unknown) => void>();
+  const listeners: { event: string; id: number; handler: number }[] = [];
+  let listened = 0;
   // The commands called, in order, and those the mock has no reply for, for the tests to read back.
   const invoked: string[] = [];
   const unmocked: string[] = [];
@@ -205,12 +208,27 @@ function mockTauri(
     savedComments: saved,
     invoked,
     unmocked,
+    /** Emits `event` to the front end, as the Rust side does. */
+    emit: (event: string, payload: unknown = null) => {
+      for (const { id, handler } of listeners.filter((l) => l.event === event)) {
+        callbacks.get(handler)?.({ event, id, payload });
+      }
+    },
+    __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: () => {} },
     __TAURI_INTERNALS__: {
       invoke: (cmd: string, args: Record<string, unknown>) => {
         invoked.push(cmd);
         // `listen` and its unlisten, for the events the front end subscribes to.
-        if (cmd === "plugin:event|listen") return Promise.resolve(++callbacks);
-        if (cmd === "plugin:event|unlisten") return Promise.resolve();
+        if (cmd === "plugin:event|listen") {
+          const id = ++listened;
+          listeners.push({ event: args.event as string, id, handler: args.handler as number });
+          return Promise.resolve(id);
+        }
+        if (cmd === "plugin:event|unlisten") {
+          const at = listeners.findIndex((l) => l.id === args.eventId);
+          if (at >= 0) listeners.splice(at, 1);
+          return Promise.resolve();
+        }
         const handler = handlers[cmd as keyof Replies];
         if (!handler) {
           unmocked.push(cmd);
@@ -225,7 +243,10 @@ function mockTauri(
           return Promise.reject(e);
         }
       },
-      transformCallback: () => ++callbacks,
+      transformCallback: (callback: (event: unknown) => void) => {
+        callbacks.set(callbacks.size + 1, callback);
+        return callbacks.size;
+      },
     },
   });
 }
