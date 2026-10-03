@@ -226,6 +226,12 @@
     cursor: pointer;
   }
 
+  /* The keys move the selection, not the focus: a ring left on the row clicked last would only mislead. */
+  h2 button,
+  .card {
+    outline: none;
+  }
+
   h2 button:hover {
     background: color-mix(in srgb, var(--surface0) 45%, transparent);
     color: var(--text);
