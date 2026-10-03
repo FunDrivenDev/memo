@@ -1,8 +1,9 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
+  import { Actions, UNDO_MS } from "./lib/actions";
   import * as api from "./lib/api";
-  import type { Anchor, Comment, Library, Moved, Note } from "./lib/api";
+  import type { Anchor, Comment, Library, Note } from "./lib/api";
   import CommentList, { type CommentItem } from "./lib/CommentList.svelte";
   import Help from "./lib/Help.svelte";
   import { foldStep, listStep } from "./lib/keys";
@@ -16,8 +17,6 @@
   /** A stop of the list: a note, or a folded folder. */
   type Row = { note: string } | { folder: string };
 
-  /** How long an archive, restore or trash can be undone with `u`. */
-  const UNDO_MS = 6000;
   /** The shortest spin of the reload icon, and how long its check shows after. */
   const SPIN_MS = 400;
   const DONE_MS = 1500;
@@ -60,15 +59,19 @@
   let overlay = $state<Overlay | null>(null);
   /** Whether the palette searches the archive; Tab switches it. */
   let paletteArchive = $state(false);
-  let toast = $state<{ text: string; error: boolean; undo: (() => void) | null } | null>(null);
   let view: NoteView | undefined = $state();
-  let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  /** The note trashed on screen only, until its countdown ends or `u` brings it back. */
-  let pendingTrash: { note: Note; timer: ReturnType<typeof setTimeout> } | null = null;
-  /** Notes hidden as trashed: the pending one, and those on their way to the Trash. */
-  const trashing = new SvelteSet<string>();
+  /** The message at the bottom, and what `u` undoes while it shows. */
+  const actions = new Actions(api, {
+    library: apply,
+    comments: applyComments,
+    reopen: (target) => {
+      if ("note" in target) openNote(target.note);
+      else if (pane === "comments") selectedCommentId = target.comment;
+    },
+  }, window);
+  const show = (text: string, error = false) => actions.show(text, error);
 
-  const shown = (notes: Note[]) => notes.filter((n) => !trashing.has(n.id));
+  const shown = (notes: Note[]) => notes.filter((n) => !actions.hidden(n.id));
   const notes = $derived(shown(library.notes));
   const archived = $derived(shown(library.archived));
   const folders = $derived(pane === "archive" ? library.archive_folders : library.folders);
@@ -97,7 +100,7 @@
   const commentItems: CommentItem[] = $derived.by(() => {
     const words = commentQuery.toLowerCase().split(/\s+/).filter(Boolean);
     const items = comments
-      .filter((comment) => !trashing.has(comment.note))
+      .filter((comment) => !actions.hidden(comment.note))
       .map((comment) => ({ comment, ...(shownNotes.get(comment.note) ?? { note: null, archived: false }) }))
       .filter(({ comment, note }) => {
         const text = `${comment.body} ${comment.anchor.quote} ${note?.title ?? comment.note}`.toLowerCase();
@@ -120,14 +123,6 @@
   /** Whether the note shown is in the archive. */
   const selectedArchived = $derived(pane === "comments" ? !!selectedComment?.archived : pane === "archive");
 
-  /** Shows a message; with `undo`, `u` runs it while the message shows. A new message ends a pending trash. */
-  function show(text: string, error = false, undo: (() => void) | null = null) {
-    void commitTrash();
-    toast = { text, error, undo };
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toast = null), undo ? UNDO_MS : error ? 6000 : 3000);
-  }
-
   /** Takes a new library, keeping the selection or, when its note left, the note now in its place. */
   function apply(next: Library) {
     const before = rowIndex();
@@ -136,6 +131,14 @@
     loaded = true;
     if (rowIndex() >= 0) return;
     selectRow(rows[Math.max(0, Math.min(before, rows.length - 1))] ?? null);
+  }
+
+  /** Takes new comments, keeping the selected one or, when it left, the comment now in its place. */
+  function applyComments(next: Comment[]) {
+    const before = commentItems.findIndex((i) => i.comment.id === selectedCommentId);
+    comments = next;
+    if (before < 0 || commentItems.some((i) => i.comment.id === selectedCommentId)) return;
+    selectedCommentId = commentItems[Math.min(before, commentItems.length - 1)]?.comment.id ?? null;
   }
 
   /** What the icon in the top right corner shows: the folders being read, just read, or failing. */
@@ -325,28 +328,7 @@
   }
 
   /** Resolving deletes the comment; `u` brings it back for a while. */
-  async function resolveComment(comment: Comment) {
-    try {
-      const at = commentItems.findIndex((i) => i.comment.id === comment.id);
-      comments = await api.resolveComment(comment.id);
-      if (selectedCommentId === comment.id) {
-        selectedCommentId = commentItems[Math.min(at, commentItems.length - 1)]?.comment.id ?? null;
-      }
-      show("Resolved the comment", false, () => restoreComment(comment));
-    } catch (e) {
-      show(String(e), true);
-    }
-  }
-
-  async function restoreComment(comment: Comment) {
-    try {
-      comments = await api.restoreComment(comment);
-      if (pane === "comments") selectedCommentId = comment.id;
-      show("Undone");
-    } catch (e) {
-      show(String(e), true);
-    }
-  }
+  const resolveComment = (comment: Comment) => void actions.resolve(comment);
 
   function resolveFocused() {
     const comment = focusedComment ?? selectedComment?.comment;
@@ -372,67 +354,16 @@
   }
 
   /** Archives a note of the folders, or restores one of the archive; `u` undoes it for a while. */
-  async function archiveOrRestore(note: Note) {
-    try {
-      const restoring = selectedArchived;
-      apply((restoring ? await api.restore(note.id) : await api.archive(note.id)).library);
-      show(restoring ? `Restored “${note.title}” to ${note.folder}` : `Archived “${note.title}”`, false, undoMove);
-    } catch (e) {
-      show(String(e), true);
-    }
-  }
+  const archiveOrRestore = (note: Note) => void actions.archive(note, selectedArchived);
 
-  function undo() {
-    const run = toast?.undo;
-    if (!run) return;
-    toast = null;
-    run();
-  }
-
-  async function undoMove() {
-    try {
-      const moved: Moved = await api.undo();
-      apply(moved.library);
-      openNote(moved.id);
-      show("Undone");
-    } catch (e) {
-      show(String(e), true);
-    }
-  }
-
-  /**
-   * Trashes a note on screen at once, and for real when the countdown ends: macOS offers no undo, so `u` cancels it
-   * before it happens.
-   */
+  /** Trashes a note, on screen at once and for real once `u` can no longer cancel it. */
   function trash(note: Note) {
     const before = rows.findIndex((r) => "note" in r && r.note === note.id);
-    show(`Moved “${note.title}” to the Trash`, false, () => cancelTrash(note));
-    trashing.add(note.id);
-    pendingTrash = { note, timer: setTimeout(commitTrash, UNDO_MS) };
+    actions.trash(note);
     if (selectedId === note.id) selectRow(rows[Math.min(before, rows.length - 1)] ?? null);
   }
 
-  function cancelTrash(note: Note) {
-    if (pendingTrash?.note !== note) return;
-    clearTimeout(pendingTrash.timer);
-    pendingTrash = null;
-    trashing.delete(note.id);
-    openNote(note.id);
-  }
-
-  async function commitTrash() {
-    if (!pendingTrash) return;
-    const { note, timer } = pendingTrash;
-    clearTimeout(timer);
-    pendingTrash = null;
-    try {
-      apply(await api.trash(note.id));
-    } catch (e) {
-      show(String(e), true);
-    } finally {
-      trashing.delete(note.id);
-    }
-  }
+  const undo = () => void actions.undo();
 
   function withNote(run: (note: Note) => void) {
     return () => {
@@ -686,11 +617,12 @@
   {/if}
 </button>
 
-{#if toast}
+{#if actions.toast}
+  {@const toast = actions.toast}
   {#key toast}
   <div class="toast" class:error={toast.error} role="status">
     <span>{toast.text}</span>
-    {#if toast.undo}
+    {#if toast.undoable}
       <button class="undo" onclick={undo}>Undo <kbd>u</kbd></button>
       <span class="countdown" style:animation-duration={`${UNDO_MS}ms`}></span>
     {/if}
