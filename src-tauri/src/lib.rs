@@ -223,6 +223,13 @@ fn library(app: State<App>, handle: AppHandle) -> Library {
     app.reload(&handle)
 }
 
+/// Rereads everything and watches the folders afresh, for a change the watcher missed.
+#[tauri::command]
+fn refresh(app: State<App>, handle: AppHandle) -> Library {
+    *app.watcher.lock().unwrap() = None;
+    app.reload(&handle)
+}
+
 #[tauri::command]
 fn settings(app: State<App>) -> SettingsView {
     let settings = config::load(&app.settings_file);
@@ -636,6 +643,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             library,
+            refresh,
             settings,
             save_settings,
             choose_folder,
