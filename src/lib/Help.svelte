@@ -10,6 +10,7 @@
     ["⇧↓  ⇧↑", "While reading, span more paragraphs, to comment on them together"],
     ["⌘↑  ⌘↓", "First or last note; while reading, first or last paragraph"],
     ["↵  esc", "Read the note, skipping headings; back to the list"],
+    ["←  →", "Fold the folder of the note; unfold the folder selected"],
     ["⇥  ⇧⇥", "Next or previous folder"],
     ["⌘1  ⌘2  ⌘3", "Notes, Archive or Comments tab"],
     ["space  ⇧space", "Page down or up in the note"],

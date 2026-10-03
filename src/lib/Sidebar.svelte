@@ -14,8 +14,11 @@
     notes,
     counts,
     selectedId,
+    selectedFolder,
+    folded,
     active,
     onSelect,
+    onFold,
     onPane,
     onPalette,
     commentPane,
@@ -26,9 +29,15 @@
     notes: Note[];
     counts: Record<Pane, number>;
     selectedId: string | null;
+    /** The path of the folded folder selected instead of a note. */
+    selectedFolder: string | null;
+    /** The paths of the folded folders, which show their header only. */
+    folded: ReadonlySet<string>;
     /** Whether the keys move through the list, rather than through the note. */
     active: boolean;
     onSelect: (id: string) => void;
+    /** Folds or unfolds a folder, by its path. */
+    onFold: (path: string) => void;
     onPane: (pane: Pane) => void;
     onPalette: () => void;
     /** The list of comments, shown in their pane instead of the notes. */
@@ -44,11 +53,13 @@
 
   let list: HTMLElement | undefined = $state();
 
-  // Keep the selected card in view as the keyboard moves through the list.
+  // Keep the selected card, or folder, in view as the keyboard moves through the list.
   $effect(() => {
-    if (!selectedId || !list) return;
-    const card = list.querySelector<HTMLElement>(`[data-id="${CSS.escape(selectedId)}"]`);
-    if (card) reveal(list, card);
+    if (!list) return;
+    const [attribute, value] = selectedFolder ? ["data-folder", selectedFolder] : ["data-id", selectedId];
+    if (!value) return;
+    const row = list.querySelector<HTMLElement>(`[${attribute}="${CSS.escape(value)}"]`);
+    if (row) reveal(list, row);
   });
 </script>
 
@@ -72,11 +83,22 @@
   {:else}
   <nav bind:this={list}>
     {#each sections as { folder, notes: items } (folder.path)}
-      <section>
-        <h2 title={folder.path}>
-          <span>{folder.name}</span>
-          <span class="count">{items.length}</span>
+      {@const isFolded = folded.has(folder.path)}
+      <section class:folded={isFolded}>
+        <h2>
+          <button
+            class:selected={folder.path === selectedFolder}
+            data-folder={folder.path}
+            aria-expanded={!isFolded}
+            title="{folder.path}  (← fold, → unfold)"
+            onclick={() => onFold(folder.path)}
+          >
+            <svg class="chevron" viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 2 6.5 5 3.5 8" /></svg>
+            <span class="name">{folder.name}</span>
+            <span class="count">{items.length}</span>
+          </button>
         </h2>
+        {#if !isFolded}
         {#each items as note (note.id)}
           <button
             class="card"
@@ -91,6 +113,7 @@
         {:else}
           <p class="empty">Nothing here.</p>
         {/each}
+        {/if}
       </section>
     {/each}
   </nav>
@@ -170,16 +193,83 @@
     position: sticky;
     top: 0;
     z-index: 1;
-    display: flex;
-    justify-content: space-between;
     margin: 0;
-    padding: 12px 6px 6px;
+    padding: 8px 0 4px;
     background: var(--mantle);
+  }
+
+  /* Folded sections sit close together, their headers a compact list of the folders. */
+  section.folded h2 {
+    position: static;
+    padding: 1px 0;
+  }
+
+  section.folded + section:not(.folded) h2 {
+    padding-top: 8px;
+  }
+
+  h2 button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 5px 8px 5px 4px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
     font-size: 11px;
     font-weight: 650;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--subtext);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  /* The keys move the selection, not the focus: a ring left on the row clicked last would only mislead. */
+  h2 button,
+  .card {
+    outline: none;
+  }
+
+  h2 button:hover {
+    background: color-mix(in srgb, var(--surface0) 45%, transparent);
+    color: var(--text);
+  }
+
+  h2 button.selected {
+    background: var(--base);
+    border-color: var(--surface0);
+    color: var(--text);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .idle h2 button.selected {
+    box-shadow: inset 3px 0 0 var(--surface1);
+  }
+
+  .chevron {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transform: rotate(90deg);
+    transition: transform 0.12s ease;
+  }
+
+  section.folded .chevron {
+    transform: none;
+  }
+
+  .name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .count {
