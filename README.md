@@ -64,6 +64,7 @@ Every search word must match fuzzily, in the title or on one line; notes whose t
 - The front end touches no file directly: it has no filesystem or shell plugin, and its capabilities stop at events and window dragging. Every command takes a note path, and Rust checks it is a Markdown file directly inside a configured folder before anything else. The folders themselves are set only through the settings window, which stores them in memo's own settings file. Comments go to memo's own `comments.json`, never into the note, and a new or restored one must name a note memo shows.
 - Markdown is rendered by comrak without raw HTML, fenced code is coloured by syntect with bat's grammars, then everything is sanitised by ammonia; the CSP allows only the app's own scripts.
 - The copy button of a code block hands its text to `pbcopy`: the front end can write to the clipboard, never read it.
+- The only request memo makes itself is the update check: curl reads the cask from GitHub's API, without any token or data about you.
 - Only `http`, `https` and `mailto` links leave the app, and they open in the default browser. Terminal commands go to osascript as arguments and are shell-quoted, never spliced into the script.
 
 ## Install
@@ -71,6 +72,8 @@ Every search word must match fuzzily, in the title or on one line; notes whose t
 ```sh
 brew install fundrivendev/tap/memo
 ```
+
+memo looks for a newer version at launch and every 6 hours, in the tap's cask, which is what `brew upgrade` installs. When there is one, an "Update to x.y.z" button shows beside the traffic lights, and in the palette. It quits memo and opens a terminal window (Ghostty, else Terminal.app) that runs `brew update` and `brew upgrade --cask fundrivendev/tap/memo`, then reopens memo, upgraded or not. The terminal shows what Homebrew does, and asks for nothing new: it already upgrades apps when you run `brew upgrade` there. A memo installed otherwise, or run from elsewhere than `/Applications`, opens the release page instead; a development build never looks. See [decision 0005](docs/decisions/0005-updates-through-homebrew.md).
 
 CI checks a pull request for what its changes need only, as `scripts/changes.sh` decides: a change to the docs lints the Markdown and the spelling and scans for secrets, one to the code runs `just ci`, one to the cask checks it on macOS. It checks everything on `main`.
 
