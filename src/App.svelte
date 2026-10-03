@@ -54,8 +54,8 @@
   let otherFolder: string | null = null;
   /** The paths of the folders folded in the sidebar, kept across launches. */
   const folded = new SvelteSet<string>(JSON.parse(localStorage.getItem(FOLDED_KEY) ?? "[]"));
-  /** The pane of notes `selectedId` belongs to, the last one shown. */
-  let notesPane: Exclude<Pane, "comments"> = "notes";
+  /** The pane of notes `selectedId` belongs to, the last one shown: the list's, under the Comments pane too. */
+  let notesPane = $state<Exclude<Pane, "comments">>("notes");
   let comments = $state<Comment[]>([]);
   let commentQuery = $state("");
   let selectedCommentId = $state<string | null>(null);
@@ -83,10 +83,10 @@
   const shown = (notes: Note[]) => notes.filter((n) => !actions.hidden(n.id));
   const notes = $derived(shown(library.notes));
   const archived = $derived(shown(library.archived));
-  const folders = $derived(pane === "archive" ? library.archive_folders : library.folders);
-  /** The notes of the pane in sidebar order: by folder, then most recent first. */
+  const folders = $derived(notesPane === "archive" ? library.archive_folders : library.folders);
+  /** The notes of the pane of notes in sidebar order: by folder, then most recent first. */
   const ordered = $derived.by(() => {
-    const paneNotes = pane === "archive" ? archived : notes;
+    const paneNotes = notesPane === "archive" ? archived : notes;
     return folders.flatMap((f) => paneNotes.filter((n) => n.folder === f.name));
   });
   /** What the arrows stop on, top to bottom: the notes of the unfolded folders, and the folded folders. */
