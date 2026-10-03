@@ -10,7 +10,7 @@ permissions: {}
 
 jobs:
   cleanup:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       actions: write
