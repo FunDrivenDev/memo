@@ -5,6 +5,7 @@
 
 mod comments;
 mod config;
+mod library;
 mod notes;
 mod render;
 mod search;
@@ -25,38 +26,33 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use comments::{Anchor, Comment};
-use config::Folder;
-use notes::Note;
+use library::Library;
 
 struct App {
     home: PathBuf,
     settings_file: PathBuf,
-    comments_file: PathBuf,
-    comments: Mutex<Vec<Comment>>,
+    library: Mutex<Library>,
     workdirs_file: PathBuf,
     /// The folders sessions started in.
     workdirs: Mutex<Vec<session::Workdir>>,
-    folders: Mutex<Vec<Folder>>,
-    notes: Mutex<Vec<Note>>,
-    /// The archive folder, which may not exist yet.
-    archive: Mutex<PathBuf>,
-    /// The sections of the archive, and their notes.
-    archive_folders: Mutex<Vec<Folder>>,
-    archived: Mutex<Vec<Note>>,
-    /// The last archive or restore, which `undo` moves back.
-    last_move: Mutex<Option<Move>>,
-    watched: Mutex<Vec<PathBuf>>,
-    watcher: Mutex<Option<Debouncer<RecommendedWatcher>>>,
+    watcher: Mutex<Watcher>,
 }
 
-struct Move {
-    from: PathBuf,
-    to: PathBuf,
+/// The folders watched, and the watcher, dropped to stop watching them.
+#[derive(Default)]
+struct Watcher {
+    folders: Vec<PathBuf>,
+    debouncer: Option<Debouncer<RecommendedWatcher>>,
 }
 
 impl App {
     /// Rereads the settings, the folders and the archive; watches them when they changed.
-    fn reload(&self, handle: &AppHandle) -> Library {
+    fn reload(&self, handle: &AppHandle) -> LibraryView {
+        self.rescan(handle, &mut self.library.lock().unwrap())
+    }
+
+    /// [`App::reload`], for a command already holding the library.
+    fn rescan(&self, handle: &AppHandle, library: &mut Library) -> LibraryView {
         let settings = config::load(&self.settings_file);
         let claude_dir = config::claude_dir(&self.home);
         let folders = config::discover(
@@ -67,82 +63,19 @@ impl App {
             &config::archive(&settings, &self.home, &claude_dir),
             &self.home,
         );
-        let archive = archive.canonicalize().unwrap_or(archive);
-        let archive_folders = notes::archive_folders(&archive);
-        let notes = notes::list(&folders);
-        let archived = notes::list(&archive_folders);
+        library.scan(folders, &archive);
 
-        let mut watched: Vec<PathBuf> = folders.iter().map(|f| f.path.clone()).collect();
-        watched.extend(archive_folders.iter().map(|f| f.path.clone()));
-        if archive.is_dir() {
-            watched.push(archive.clone());
+        let watched = library.watched();
+        let mut watcher = self.watcher.lock().unwrap();
+        if watcher.folders != watched || watcher.debouncer.is_none() {
+            watcher.debouncer = watch(handle, &watched);
+            watcher.folders = watched;
         }
-        let changed = *self.watched.lock().unwrap() != watched;
-        if changed || self.watcher.lock().unwrap().is_none() {
-            *self.watcher.lock().unwrap() = watch(handle, &watched);
-            *self.watched.lock().unwrap() = watched;
-        }
-        *self.folders.lock().unwrap() = folders.clone();
-        *self.notes.lock().unwrap() = notes.clone();
-        *self.archive.lock().unwrap() = archive.clone();
-        *self.archive_folders.lock().unwrap() = archive_folders.clone();
-        *self.archived.lock().unwrap() = archived.clone();
-        Library {
+        LibraryView {
             claude_dir,
             custom: settings.folders.is_some(),
-            folders,
-            notes,
-            archive,
-            archive_folders,
-            archived,
-            comments: self.comments.lock().unwrap().clone(),
+            library: library.snapshot(),
         }
-    }
-
-    /// Changes the comments and saves them, returning them all.
-    fn change_comments<T>(
-        &self,
-        change: impl FnOnce(&mut Vec<Comment>) -> Result<T, String>,
-    ) -> Result<Vec<Comment>, String> {
-        let mut comments = self.comments.lock().unwrap();
-        let mut next = comments.clone();
-        change(&mut next)?;
-        comments::save(&self.comments_file, &next)?;
-        *comments = next;
-        Ok(comments.clone())
-    }
-
-    /// Carries the comments of a note memo moved to its new path.
-    fn follow_move(&self, from: &Path, to: &Path) {
-        let _ = self.change_comments(|c| {
-            comments::rename(c, from, to);
-            Ok(())
-        });
-    }
-
-    /// The path of a note of the folders or of the archive.
-    fn resolve(&self, id: &str) -> Result<PathBuf, String> {
-        let mut folders = self.folders.lock().unwrap().clone();
-        folders.extend(self.archive_folders.lock().unwrap().iter().cloned());
-        notes::resolve(&folders, id)
-    }
-
-    /// Moves a note and remembers it for `undo`.
-    fn move_note(&self, from: PathBuf, dir: &Path) -> Result<PathBuf, String> {
-        if from.parent() == Some(dir) {
-            return Err(format!(
-                "{} is already in {}",
-                from.display(),
-                dir.display()
-            ));
-        }
-        let to = notes::move_into(&from, dir)?;
-        self.follow_move(&from, &to);
-        *self.last_move.lock().unwrap() = Some(Move {
-            from,
-            to: to.clone(),
-        });
-        Ok(to)
     }
 }
 
@@ -166,17 +99,14 @@ fn watch(handle: &AppHandle, folders: &[PathBuf]) -> Option<Debouncer<Recommende
     Some(debouncer)
 }
 
+/// What the front end calls the library: its contents, with where they come from.
 #[derive(Serialize)]
-struct Library {
+struct LibraryView {
     claude_dir: PathBuf,
     /// Whether the folders come from memo's settings rather than Claude Code's default.
     custom: bool,
-    folders: Vec<Folder>,
-    notes: Vec<Note>,
-    archive: PathBuf,
-    archive_folders: Vec<Folder>,
-    archived: Vec<Note>,
-    comments: Vec<Comment>,
+    #[serde(flatten)]
+    library: library::Snapshot,
 }
 
 /// What an archive, restore or undo did, with the library after it.
@@ -184,7 +114,7 @@ struct Library {
 struct Moved {
     /// The note's new path.
     id: PathBuf,
-    library: Library,
+    library: LibraryView,
 }
 
 #[derive(Serialize)]
@@ -220,14 +150,14 @@ struct SessionDefaults {
 }
 
 #[tauri::command]
-fn library(app: State<App>, handle: AppHandle) -> Library {
+fn library(app: State<App>, handle: AppHandle) -> LibraryView {
     app.reload(&handle)
 }
 
 /// Rereads everything and watches the folders afresh, for a change the watcher missed.
 #[tauri::command]
-fn refresh(app: State<App>, handle: AppHandle) -> Library {
-    *app.watcher.lock().unwrap() = None;
+fn refresh(app: State<App>, handle: AppHandle) -> LibraryView {
+    app.watcher.lock().unwrap().debouncer = None;
     app.reload(&handle)
 }
 
@@ -258,7 +188,7 @@ fn save_settings(
     handle: AppHandle,
     folders: Option<Vec<String>>,
     archive: &str,
-) -> Result<Library, String> {
+) -> Result<LibraryView, String> {
     let settings = config::Settings {
         folders: folders.map(|f| config::clean_folders(&f)).transpose()?,
         archive: Some(config::clean_folder(archive).map_err(|e| format!("Archive: {e}"))?),
@@ -345,7 +275,7 @@ fn open_privacy_settings(app: State<App>, folder: &str) -> Result<(), String> {
 
 #[tauri::command]
 fn render(app: State<App>, id: &str) -> Result<Rendered, String> {
-    let path = app.resolve(id)?;
+    let path = app.library.lock().unwrap().resolve(id)?;
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let words = notes::body(&content).split_whitespace().count();
     Ok(Rendered {
@@ -356,91 +286,46 @@ fn render(app: State<App>, id: &str) -> Result<Rendered, String> {
 
 #[tauri::command]
 fn search(app: State<App>, query: &str, archived: bool) -> search::Results {
-    let notes = if archived { &app.archived } else { &app.notes };
-    search::search_all(
-        query,
-        &notes.lock().unwrap(),
-        &app.comments.lock().unwrap(),
-        50,
-    )
+    app.library.lock().unwrap().search(query, archived)
 }
 
-/// Moves a note of the folders to `<archive>/<folder name>`.
 #[tauri::command]
 fn archive(app: State<App>, handle: AppHandle, id: &str) -> Result<Moved, String> {
-    let path = app.resolve(id)?;
-    let folder = path.parent().ok_or("no parent folder")?;
-    if !app.folders.lock().unwrap().iter().any(|f| f.path == folder) {
-        return Err(format!("{id} is already archived"));
-    }
-    let dir = notes::archive_target(&app.archive.lock().unwrap(), folder);
-    let to = app.move_note(path, &dir)?;
+    let mut library = app.library.lock().unwrap();
+    let to = library.archive(id)?;
     Ok(Moved {
         id: to,
-        library: app.reload(&handle),
+        library: app.rescan(&handle, &mut library),
     })
 }
 
-/// Moves an archived note back to the watched folder its archive section is named after.
 #[tauri::command]
 fn restore(app: State<App>, handle: AppHandle, id: &str) -> Result<Moved, String> {
-    let path = app.resolve(id)?;
-    let section = path.parent().and_then(Path::file_name).unwrap_or_default();
-    let folder = app
-        .folders
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|f| f.path.file_name() == Some(section))
-        .map(|f| f.path.clone())
-        .ok_or_else(|| {
-            format!(
-                "No watched folder is named {}; move the note in Finder",
-                section.to_string_lossy()
-            )
-        })?;
-    let to = app.move_note(path, &folder)?;
+    let mut library = app.library.lock().unwrap();
+    let to = library.restore(id)?;
     Ok(Moved {
         id: to,
-        library: app.reload(&handle),
+        library: app.rescan(&handle, &mut library),
     })
 }
 
-/// Moves the last archived or restored note back where it was.
 #[tauri::command]
 fn undo(app: State<App>, handle: AppHandle) -> Result<Moved, String> {
-    let last = app
-        .last_move
-        .lock()
-        .unwrap()
-        .take()
-        .ok_or("Nothing to undo")?;
-    if !last.to.is_file() {
-        return Err(format!("{} is gone", last.to.display()));
-    }
-    if last.from.exists() {
-        return Err(format!("{} exists again", last.from.display()));
-    }
-    notes::move_file(&last.to, &last.from)?;
-    app.follow_move(&last.to, &last.from);
+    let mut library = app.library.lock().unwrap();
+    let to = library.undo()?;
     Ok(Moved {
-        id: last.from,
-        library: app.reload(&handle),
+        id: to,
+        library: app.rescan(&handle, &mut library),
     })
 }
 
 #[tauri::command]
-fn trash(app: State<App>, handle: AppHandle, id: &str) -> Result<Library, String> {
-    let path = app.resolve(id)?;
-    notes::trash(&path)?;
-    let _ = app.change_comments(|c| {
-        comments::forget(c, &path);
-        Ok(())
-    });
-    Ok(app.reload(&handle))
+fn trash(app: State<App>, handle: AppHandle, id: &str) -> Result<LibraryView, String> {
+    let mut library = app.library.lock().unwrap();
+    library.trash(id, notes::trash)?;
+    Ok(app.rescan(&handle, &mut library))
 }
 
-/// Comments a note, on the passage or blocks `anchor` names.
 #[tauri::command]
 fn add_comment(
     app: State<App>,
@@ -448,42 +333,32 @@ fn add_comment(
     body: &str,
     anchor: Anchor,
 ) -> Result<Vec<Comment>, String> {
-    let note = app.resolve(note)?.to_string_lossy().into_owned();
-    app.change_comments(|c| comments::add(c, note, body, anchor, comments::now()))
+    app.library.lock().unwrap().add_comment(note, body, anchor)
 }
 
 #[tauri::command]
 fn edit_comment(app: State<App>, id: &str, body: &str) -> Result<Vec<Comment>, String> {
-    app.change_comments(|c| comments::edit(c, id, body, comments::now()))
+    app.library.lock().unwrap().edit_comment(id, body)
 }
 
-/// Resolving a comment deletes it; the front end keeps it to undo that.
 #[tauri::command]
 fn resolve_comment(app: State<App>, id: &str) -> Result<Vec<Comment>, String> {
-    app.change_comments(|c| comments::remove(c, id))
+    app.library.lock().unwrap().resolve_comment(id)
 }
 
-/// Puts back a resolved comment.
 #[tauri::command]
 fn restore_comment(app: State<App>, comment: Comment) -> Result<Vec<Comment>, String> {
-    app.resolve(&comment.note)?;
-    app.change_comments(|c| {
-        comments::restore(c, comment);
-        Ok(())
-    })
+    app.library.lock().unwrap().restore_comment(comment)
 }
 
 #[tauri::command]
 fn session_defaults(app: State<App>, id: &str) -> Result<SessionDefaults, String> {
-    let path = app.resolve(id)?;
+    let (path, folders) = {
+        let library = app.library.lock().unwrap();
+        let folders: Vec<PathBuf> = library.folders().iter().map(|f| f.path.clone()).collect();
+        (library.resolve(id)?, folders)
+    };
     let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let folders: Vec<PathBuf> = app
-        .folders
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|f| f.path.clone())
-        .collect();
     let mut ignore: Vec<PathBuf> = folders
         .iter()
         .filter_map(|f| f.parent().map(Path::to_path_buf))
@@ -558,14 +433,14 @@ fn install_update(app: State<App>, handle: AppHandle) -> Result<(), String> {
 /// Shows the note in Finder.
 #[tauri::command]
 fn reveal(app: State<App>, id: &str) -> Result<(), String> {
-    let path = app.resolve(id)?;
+    let path = app.library.lock().unwrap().resolve(id)?;
     open(&["-R".as_ref(), path.as_os_str()])
 }
 
 /// Opens the note in the default Markdown editor.
 #[tauri::command]
 fn edit(app: State<App>, id: &str) -> Result<(), String> {
-    let path = app.resolve(id)?;
+    let path = app.library.lock().unwrap().resolve(id)?;
     open(&[path.as_os_str()])
 }
 
@@ -631,23 +506,14 @@ fn open(args: &[&OsStr]) -> Result<(), String> {
 
 pub fn run() {
     let home = std::env::home_dir().expect("no home directory");
-    let comments_file = comments::file(&config::settings_file(&home));
     let workdirs_file = session::workdirs_file(&config::settings_file(&home));
     tauri::Builder::default()
         .manage(App {
-            comments: Mutex::new(comments::load(&comments_file)),
-            comments_file,
+            library: Mutex::new(Library::new(comments::file(&config::settings_file(&home)))),
             workdirs: Mutex::new(session::load_workdirs(&workdirs_file)),
             workdirs_file,
             settings_file: config::settings_file(&home),
             home,
-            folders: Mutex::default(),
-            notes: Mutex::default(),
-            archive: Mutex::default(),
-            archive_folders: Mutex::default(),
-            archived: Mutex::default(),
-            last_move: Mutex::default(),
-            watched: Mutex::default(),
             watcher: Mutex::default(),
         })
         .menu(menu)

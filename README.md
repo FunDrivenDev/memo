@@ -26,7 +26,7 @@ Each existing folder becomes a sidebar section. The section lists the `.md` file
 
 Comments are notes on a note, like the comments of a pull request review. Select text and press `c` (or the Comment button that shows by the selection), or read the note with `↵`, span more paragraphs with `⇧↓` `⇧↑` if needed, and press `c`; the `+` beside a paragraph comments on it with the mouse. `⌘↵` saves. The comment shows under what it is on, highlighted.
 
-The note itself is never touched: comments live in `comments.json` beside memo's settings, and follow a note memo archives, restores or undoes. When the note changes, a comment finds its text again, preferring the place nearest its old lines; one whose text is gone shows at the top of the note, with what it was on.
+The note itself is never touched: comments live in `comments.json` beside memo's settings, and follow a note memo archives, restores or undoes; when they cannot be saved, the note stays where it was and a message says why. When the note changes, a comment finds its text again, preferring the place nearest its old lines; one whose text is gone shows at the top of the note, with what it was on.
 
 A click on a highlight or a comment focuses it, as does the reading cursor on its paragraph: `r` then resolves it, which deletes it, and `u` brings it back while the message shows; `↵` edits it while reading. The Comments tab lists them all, one section per note, with a search field (`/` from anywhere): `↓` `↑` go through them and show each in its note, `⇥` goes to the next note, `↵` edits, `r` resolves. Trashing a note drops its comments.
 
