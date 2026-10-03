@@ -157,7 +157,7 @@ pub fn shell_quote(text: &str) -> String {
 }
 
 /// Ghostty's AppleScript: a new window running the user's own shell, which is typed the
-/// `claude` command, so the session gets the usual PATH and the shell stays afterwards.
+/// command, so it gets the usual PATH and the shell stays afterwards.
 const GHOSTTY: &str = r#"on run argv
     tell application "Ghostty"
         activate
@@ -175,20 +175,24 @@ const TERMINAL: &str = r#"on run argv
     end tell
 end run"#;
 
-/// Opens a terminal window in `workdir` running `claude "<prompt>"`: Ghostty when
-/// installed, else Terminal. The values travel as osascript arguments, never inside the
-/// script, and are shell-quoted for the command line.
+/// Opens a terminal window in `workdir` running `claude "<prompt>"`.
 pub fn launch(workdir: &Path, prompt: &str) -> Result<(), String> {
+    run_in_terminal(workdir, &format!("claude {}", shell_quote(prompt)))
+}
+
+/// Opens a terminal window in `workdir` running `command`: Ghostty when installed, else
+/// Terminal. The values travel as osascript arguments, never inside the script; the
+/// caller shell-quotes what `command` holds.
+pub fn run_in_terminal(workdir: &Path, command: &str) -> Result<(), String> {
     if !workdir.is_dir() {
         return Err(format!("{} is not a directory", workdir.display()));
     }
     let dir = workdir.to_string_lossy();
-    let claude = format!("claude {}", shell_quote(prompt));
     let ghostty = Path::new("/Applications/Ghostty.app").exists();
     let (script, input) = if ghostty {
-        (GHOSTTY, format!("{claude}\n"))
+        (GHOSTTY, format!("{command}\n"))
     } else {
-        (TERMINAL, format!("cd {} && {claude}", shell_quote(&dir)))
+        (TERMINAL, format!("cd {} && {command}", shell_quote(&dir)))
     };
     let output = Command::new("/usr/bin/osascript")
         .args(["-e", script, "--", &dir, &input])

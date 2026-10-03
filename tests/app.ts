@@ -14,11 +14,13 @@ export interface Fixture {
   comments?: unknown[];
   /** How many notes land in the folder after launch, unseen by the watcher: only `refresh` lists them. */
   added?: number;
+  /** The newer memo `check_update` finds, if any. */
+  update?: unknown;
 }
 
 /** Stands in for the Rust commands: folders of notes, each a column of numbered paragraphs. */
 function mockTauri(
-  { notes, folders = ["plans"], paragraphs, after = "", comments = [], added = 0 }: Fixture,
+  { notes, folders = ["plans"], paragraphs, after = "", comments = [], added = 0, update = null }: Fixture,
 ) {
   const all = Array.from({ length: notes + added }, (_, i) => ({
     id: `/notes/${folders[i % folders.length]}/note-${i}.md`,
@@ -65,6 +67,7 @@ function mockTauri(
       recent: ["~/Code/memo", "~/Code/site", "~/Notes"],
     },
     complete_folder: { folders: [], denied: null },
+    check_update: update,
   };
   // The comments as the Rust side keeps them, for the tests to read back.
   const saved = comments as Record<string, unknown>[];
@@ -83,6 +86,9 @@ function mockTauri(
       invoke: (cmd: string, args: Record<string, unknown>) => {
         if (cmd === "copy") Object.assign(globalThis, { copied: args.text });
         if (cmd === "start_session") Object.assign(globalThis, { session: args });
+        if (cmd === "install_update" || cmd === "open_url") {
+          Object.assign(globalThis, { updated: { cmd, ...args } });
+        }
         const comment = commentCommands[cmd];
         if (comment) {
           // Through JSON, as Tauri sends them: the front end's objects may be Svelte proxies.

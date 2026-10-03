@@ -9,6 +9,7 @@ mod notes;
 mod render;
 mod search;
 mod session;
+mod update;
 
 use std::ffi::OsStr;
 use std::io::Write;
@@ -530,6 +531,30 @@ fn start_session(app: State<App>, workdir: &str, prompt: &str) -> Result<(), Str
     Ok(())
 }
 
+/// A newer memo in the Homebrew tap, if any; a development build never looks.
+#[tauri::command]
+async fn check_update() -> Result<Option<update::Update>, String> {
+    if cfg!(debug_assertions) {
+        return Ok(None);
+    }
+    let homebrew = update::bundle()
+        .and_then(|b| update::homebrew(&b))
+        .is_some();
+    let cask = update::fetch_cask()?;
+    Ok(update::newer(env!("CARGO_PKG_VERSION"), &cask, homebrew))
+}
+
+/// Quits memo and has Homebrew upgrade it in a terminal window, which reopens it after.
+#[tauri::command]
+fn install_update(app: State<App>, handle: AppHandle) -> Result<(), String> {
+    let bundle = update::bundle().ok_or("memo is not running from an app bundle")?;
+    let brew = update::homebrew(&bundle).ok_or("memo was not installed with Homebrew")?;
+    let command = update::command(&brew, &bundle, std::process::id());
+    session::run_in_terminal(&app.home, &command)?;
+    handle.exit(0);
+    Ok(())
+}
+
 /// Shows the note in Finder.
 #[tauri::command]
 fn reveal(app: State<App>, id: &str) -> Result<(), String> {
@@ -663,6 +688,8 @@ pub fn run() {
             restore_comment,
             session_defaults,
             start_session,
+            check_update,
+            install_update,
             reveal,
             edit,
             open_url,
