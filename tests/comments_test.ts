@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import { deepEqual, equal, ok } from "node:assert/strict";
 import type { Page } from "playwright";
+import type { Anchor, Comment } from "../src/lib/api.ts";
 import { browserTest, openApp } from "./app.ts";
 
 /** The comments as the mocked Rust side keeps them. */
@@ -23,7 +24,11 @@ async function write(page: Page, body: string) {
   await page.keyboard.press("Meta+Enter");
 }
 
-const comment = (id: string, anchor: Record<string, unknown>, body = "Look again") => ({
+const comment = (
+  id: string,
+  anchor: Omit<Anchor, "prefix" | "suffix"> & Partial<Anchor>,
+  body = "Look again",
+): Comment => ({
   id,
   note: "/notes/plans/note-0.md",
   body,

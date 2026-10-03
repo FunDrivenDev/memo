@@ -1,5 +1,43 @@
 import { type Browser, chromium, type Page } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
+import type * as api from "../src/lib/api.ts";
+import type { Comment, Library, Moved, Note, Update } from "../src/lib/api.ts";
+
+type Reply<F extends (...args: never[]) => Promise<unknown>> = Awaited<ReturnType<F>>;
+
+/** What each Rust command answers, as its wrapper in src/lib/api.ts types it. */
+interface Replies {
+  library: Reply<typeof api.library>;
+  refresh: Reply<typeof api.refresh>;
+  settings: Reply<typeof api.settings>;
+  save_settings: Reply<typeof api.saveSettings>;
+  choose_folder: Reply<typeof api.chooseFolder>;
+  inspect_folder: Reply<typeof api.inspectFolder>;
+  create_folder: Reply<typeof api.createFolder>;
+  complete_folder: Reply<typeof api.completeFolder>;
+  open_privacy_settings: Reply<typeof api.openPrivacySettings>;
+  render: Reply<typeof api.render>;
+  search: Reply<typeof api.search>;
+  archive: Reply<typeof api.archive>;
+  restore: Reply<typeof api.restore>;
+  undo: Reply<typeof api.undo>;
+  trash: Reply<typeof api.trash>;
+  add_comment: Reply<typeof api.addComment>;
+  edit_comment: Reply<typeof api.editComment>;
+  resolve_comment: Reply<typeof api.resolveComment>;
+  restore_comment: Reply<typeof api.restoreComment>;
+  session_defaults: Reply<typeof api.sessionDefaults>;
+  start_session: Reply<typeof api.startSession>;
+  check_update: Reply<typeof api.checkUpdate>;
+  install_update: Reply<typeof api.installUpdate>;
+  reveal: Reply<typeof api.reveal>;
+  edit: Reply<typeof api.edit>;
+  open_url: Reply<typeof api.openUrl>;
+  copy: Reply<typeof api.copy>;
+}
+
+/** How the mock answers a command, given its arguments. */
+type Handlers = { [K in keyof Replies]?: (args: Record<string, unknown>) => Replies[K] };
 
 export interface Fixture {
   /** How many notes the folders hold, dealt among them in turn. */
@@ -11,96 +49,181 @@ export interface Fixture {
   /** HTML rendered after the paragraphs. */
   after?: string;
   /** The comments saved already, as the Rust side keeps them. */
-  comments?: unknown[];
+  comments?: Comment[];
   /** How many notes land in the folder after launch, unseen by the watcher: only `refresh` lists them. */
   added?: number;
+  /** How many notes the archive holds, dealt among the folders' sections in turn. */
+  archived?: number;
   /** The newer memo `check_update` finds, if any. */
-  update?: unknown;
+  update?: Update | null;
 }
 
 /** Stands in for the Rust commands: folders of notes, each a column of numbered paragraphs. */
 function mockTauri(
-  { notes, folders = ["plans"], paragraphs, after = "", comments = [], added = 0, update = null }: Fixture,
+  {
+    notes,
+    folders = ["plans"],
+    paragraphs,
+    after = "",
+    comments = [],
+    added = 0,
+    archived = 0,
+    update = null,
+  }: Fixture,
 ) {
-  const all = Array.from({ length: notes + added }, (_, i) => ({
-    id: `/notes/${folders[i % folders.length]}/note-${i}.md`,
-    folder: folders[i % folders.length],
-    file_name: `note-${i}.md`,
-    title: `Note ${i}`,
-    excerpt: "",
-    modified: 0,
-  }));
-  const list = all.slice(0, notes);
+  const note = (dir: string, name: string, title: string, i: number): Note => {
+    const folder = folders[i % folders.length]!;
+    return {
+      id: `${dir}/${folder}/${name}-${i}.md`,
+      folder,
+      file_name: `${name}-${i}.md`,
+      title,
+      excerpt: "",
+      modified: 0,
+    };
+  };
+  const all = Array.from({ length: notes + added }, (_, i) => note("/notes", "note", `Note ${i}`, i));
+  // The notes listed, those the watcher has not seen yet, and the archived ones: archive, restore and undo move
+  // notes between the first and the last.
+  const listed = all.slice(0, notes);
+  const unseen = all.slice(notes);
+  const archive = Array.from(
+    { length: archived },
+    (_, i) => note("/notes/archive", "archived", `Archived ${i}`, i),
+  );
+  const byTitle = (a: Note, b: Note) => a.title.localeCompare(b.title, "en", { numeric: true });
+  /** Moves the note `id` into the archive or out of it, and returns its new path. */
+  const move = (id: string, into: "archive" | "folders"): string => {
+    const [from, to, dir] = into === "archive"
+      ? [listed, archive, "/notes/archive"]
+      : [archive, listed, "/notes"];
+    const at = from.findIndex((n) => n.id === id);
+    if (at < 0) throw new Error(`${id} is not ${into === "archive" ? "in the folders" : "archived"}`);
+    const [moved] = from.splice(at, 1);
+    const path = `${dir}/${moved!.folder}/${moved!.file_name}`;
+    to.push({ ...moved!, id: path });
+    to.sort(byTitle);
+    return path;
+  };
+  // The last archive or restore, which `undo` moves back.
+  let last: { id: string; back: "archive" | "folders" } | null = null;
+  const moved = (id: string, into: "archive" | "folders"): Moved => {
+    const to = move(id, into);
+    last = { id: to, back: into === "archive" ? "folders" : "archive" };
+    return { id: to, library: library() };
+  };
   const html = Array.from(
     { length: paragraphs },
     (_, i) => `<p data-sourcepos="${2 * i + 1}:1-${2 * i + 1}:20">Paragraph ${i}</p>`,
   ).join("") + after;
-  const library = (notes: unknown[]) => ({
+  // The comments as the Rust side keeps them, for the tests to read back.
+  const saved = comments;
+  const library = (): Library => ({
     claude_dir: "/claude",
     custom: false,
     folders: folders.map((name) => ({ name, path: `/notes/${name}` })),
-    notes,
+    notes: listed,
     archive: "/notes/archive",
-    archive_folders: [],
-    archived: [],
-    comments,
+    archive_folders: folders.filter((name) => archive.some((n) => n.folder === name)).map((name) => ({
+      name,
+      path: `/notes/archive/${name}`,
+    })),
+    archived: archive,
+    comments: saved,
   });
-  const replies: Record<string, unknown> = {
-    library: library(list),
-    refresh: library(all),
-    render: { html, words: paragraphs * 2 },
+  let ids = 0;
+  const handlers: Handlers = {
+    library,
+    refresh: () => {
+      listed.push(...unseen.splice(0));
+      listed.sort(byTitle);
+      return library();
+    },
+    render: () => ({ html, words: paragraphs * 2 }),
     // Every search finds the second comment, when there is one.
-    search: {
+    search: () => ({
       notes: [],
-      comments: (comments as { id: string; note: string; body: string }[]).slice(1, 2).map((
-        { id, note, body },
-      ) => ({
+      comments: saved.slice(1, 2).map(({ id, note, body }) => ({
         id,
         note,
         score: 1,
         snippets: [{ line: 1, text: body, indices: [0] }],
       })),
+    }),
+    archive: ({ id }) => moved(id as string, "archive"),
+    restore: ({ id }) => moved(id as string, "folders"),
+    undo: () => {
+      if (!last) throw new Error("Nothing to undo");
+      const { id, back } = last;
+      last = null;
+      return { id: move(id, back), library: library() };
     },
-    session_defaults: {
+    trash: ({ id }) => {
+      listed.splice(listed.findIndex((n) => n.id === id), 1);
+      return library();
+    },
+    add_comment: (args) => {
+      const { note, body, anchor } = args as Pick<Comment, "note" | "body" | "anchor">;
+      saved.push({ id: `c${++ids}`, note, body, anchor, created: ids, updated: ids });
+      return saved;
+    },
+    edit_comment: ({ id, body }) => {
+      Object.assign(saved.find((c) => c.id === id)!, { body });
+      return saved;
+    },
+    resolve_comment: ({ id }) => {
+      saved.splice(saved.findIndex((c) => c.id === id), 1);
+      return saved;
+    },
+    restore_comment: ({ comment }) => {
+      saved.push(comment as Comment);
+      return saved;
+    },
+    session_defaults: () => ({
       workdir: "~/Code/memo",
       prompt: "Read the plan.",
       recent: ["~/Code/memo", "~/Code/site", "~/Notes"],
-    },
-    complete_folder: { folders: [], denied: null },
-    check_update: update,
+    }),
+    complete_folder: () => ({ folders: [], denied: null }),
+    check_update: () => update,
+    copy: ({ text }) => void Object.assign(globalThis, { copied: text }),
+    start_session: (args) => void Object.assign(globalThis, { session: args }),
+    install_update: (args) => void Object.assign(globalThis, { updated: { cmd: "install_update", ...args } }),
+    open_url: (args) => void Object.assign(globalThis, { updated: { cmd: "open_url", ...args } }),
+    // Fire and forget: they only act on the Mac, and return nothing.
+    reveal: () => {},
+    edit: () => {},
+    create_folder: () => {},
+    open_privacy_settings: () => {},
   };
-  // The comments as the Rust side keeps them, for the tests to read back.
-  const saved = comments as Record<string, unknown>[];
-  let ids = 0;
-  const commentCommands: Record<string, (args: Record<string, unknown>) => void> = {
-    add_comment: ({ note, body, anchor }) =>
-      saved.push({ id: `c${++ids}`, note, body, anchor, created: ids, updated: ids }),
-    edit_comment: ({ id, body }) => Object.assign(saved.find((c) => c.id === id)!, { body }),
-    resolve_comment: ({ id }) => saved.splice(saved.findIndex((c) => c.id === id), 1),
-    restore_comment: ({ comment }) => saved.push(comment as Record<string, unknown>),
-  };
+  const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
   let callbacks = 0;
-  // The commands called, in order, for the tests to read back.
+  // The commands called, in order, and those the mock has no reply for, for the tests to read back.
   const invoked: string[] = [];
+  const unmocked: string[] = [];
   Object.assign(globalThis, {
     savedComments: saved,
     invoked,
+    unmocked,
     __TAURI_INTERNALS__: {
       invoke: (cmd: string, args: Record<string, unknown>) => {
         invoked.push(cmd);
-        if (cmd === "copy") Object.assign(globalThis, { copied: args.text });
-        if (cmd === "start_session") Object.assign(globalThis, { session: args });
-        if (cmd === "install_update" || cmd === "open_url") {
-          Object.assign(globalThis, { updated: { cmd, ...args } });
+        // `listen` and its unlisten, for the events the front end subscribes to.
+        if (cmd === "plugin:event|listen") return Promise.resolve(++callbacks);
+        if (cmd === "plugin:event|unlisten") return Promise.resolve();
+        const handler = handlers[cmd as keyof Replies];
+        if (!handler) {
+          unmocked.push(cmd);
+          return Promise.reject(new Error(`unmocked command: ${cmd}`));
         }
-        const comment = commentCommands[cmd];
-        if (comment) {
-          // Through JSON, as Tauri sends them: the front end's objects may be Svelte proxies.
-          comment(JSON.parse(JSON.stringify(args)));
-          return Promise.resolve(JSON.parse(JSON.stringify(saved)));
+        try {
+          // Through JSON both ways, as Tauri sends them: the front end's objects may be Svelte proxies, and the
+          // mock's state must not leak into them.
+          const reply = handler(copy(args ?? {}));
+          return Promise.resolve(reply === undefined ? reply : copy(reply));
+        } catch (e) {
+          return Promise.reject(e);
         }
-        if (cmd === "trash") return Promise.resolve(library(list.filter((n) => n.id !== args.id)));
-        return Promise.resolve(replies[cmd] ?? null);
       },
       transformCallback: () => ++callbacks,
     },
@@ -130,8 +253,12 @@ export async function openApp(
   return {
     page,
     async close() {
+      // The front end may swallow the rejection: a test still fails on a command the mock does not answer.
+      const unmocked = await page.evaluate(() => (globalThis as unknown as { unmocked: string[] }).unmocked)
+        .catch(() => []);
       await browser.close();
       await server.close();
+      if (unmocked.length) throw new Error(`unmocked commands: ${unmocked.join(", ")}`);
     },
   };
 }
