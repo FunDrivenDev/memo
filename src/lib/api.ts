@@ -128,6 +128,8 @@ export interface SessionDefaults {
 }
 
 export const library = () => invoke<Library>("library");
+/** The library, reread with the folders watched afresh. */
+export const refresh = () => invoke<Library>("refresh");
 export const settings = () => invoke<Settings>("settings");
 /** Saves the folders to show, `null` following Claude Code's plans folder, and the archive. */
 export const saveSettings = (folders: string[] | null, archive: string) =>
