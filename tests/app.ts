@@ -131,18 +131,36 @@ function mockTauri(
     start_session: (args) => void Object.assign(globalThis, { session: args }),
     install_update: (args) => void Object.assign(globalThis, { updated: { cmd: "install_update", ...args } }),
     open_url: (args) => void Object.assign(globalThis, { updated: { cmd: "open_url", ...args } }),
+    // Fire and forget: they only act on the Mac, and return nothing.
+    reveal: () => {},
+    edit: () => {},
+    create_folder: () => {},
+    open_privacy_settings: () => {},
   };
   let callbacks = 0;
-  // The commands called, in order, for the tests to read back.
+  // The commands called, in order, and those the mock has no reply for, for the tests to read back.
   const invoked: string[] = [];
+  const unmocked: string[] = [];
   Object.assign(globalThis, {
     savedComments: saved,
     invoked,
+    unmocked,
     __TAURI_INTERNALS__: {
       invoke: (cmd: string, args: Record<string, unknown>) => {
         invoked.push(cmd);
+        // `listen` and its unlisten, for the events the front end subscribes to.
+        if (cmd === "plugin:event|listen") return Promise.resolve(++callbacks);
+        if (cmd === "plugin:event|unlisten") return Promise.resolve();
         const handler = handlers[cmd as keyof Replies];
-        return Promise.resolve(handler ? handler(args) : null);
+        if (!handler) {
+          unmocked.push(cmd);
+          return Promise.reject(new Error(`unmocked command: ${cmd}`));
+        }
+        try {
+          return Promise.resolve(handler(args));
+        } catch (e) {
+          return Promise.reject(e);
+        }
       },
       transformCallback: () => ++callbacks,
     },
@@ -172,8 +190,12 @@ export async function openApp(
   return {
     page,
     async close() {
+      // The front end may swallow the rejection: a test still fails on a command the mock does not answer.
+      const unmocked = await page.evaluate(() => (globalThis as unknown as { unmocked: string[] }).unmocked)
+        .catch(() => []);
       await browser.close();
       await server.close();
+      if (unmocked.length) throw new Error(`unmocked commands: ${unmocked.join(", ")}`);
     },
   };
 }
