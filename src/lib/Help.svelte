@@ -1,41 +1,22 @@
 <script lang="ts">
   import type { Folder } from "./api";
+  import { commands } from "./commands";
   import Modal from "./Modal.svelte";
 
   let { folders, archive, onClose }: { folders: Folder[]; archive: string; onClose: () => void } = $props();
 
-  const keys: [string, string][] = [
-    ["⌘K", "Command palette: search titles and content"],
-    ["↓  ↑", "Next or previous note; while reading, next or previous paragraph"],
-    ["⇧↓  ⇧↑", "While reading, span more paragraphs, to comment on them together"],
-    ["⌘↑  ⌘↓", "First or last note; while reading, first or last paragraph"],
-    ["↵  esc", "Read the note, skipping headings; back to the list"],
-    ["←  →", "Fold the folder of the note; unfold the folder selected"],
-    ["⇥  ⇧⇥", "Next or previous folder"],
-    ["⌘1  ⌘2  ⌘3", "Notes, Archive or Comments tab"],
-    ["space  ⇧space", "Page down or up in the note"],
-    ["c", "Comment on the selected text or the paragraphs read"],
-    ["s", "Start a Claude Code session from the note, in a folder of your choice"],
-    ["r", "Resolve the focused comment, which deletes it"],
-    ["/", "Search the comments"],
-    ["a", "Archive the note; in the archive, restore it"],
-    ["u", "Undo the archive, restore, trash or resolve, while its message shows"],
-    ["t", "Move the note to the Trash"],
-    ["e", "Open the note in the default editor"],
-    ["o", "Reveal the note in Finder"],
-    ["⌘R", "Reload the folders, for a new note that does not show"],
-    ["⌘,", "Settings: folders and archive"],
-    ["?", "This help"],
-  ];
 </script>
 
 <Modal title="Keyboard" {onClose}>
   <dl>
-    {#each keys as [key, what] (key)}
+    {#each commands as { id, keys, help } (id)}
       <dt>
-        {#each key.split("  ") as k (k)}<kbd>{k}</kbd>{/each}
+        {#each keys as key (key)}<kbd>{key}</kbd>{/each}
       </dt>
-      <dd>{what}</dd>
+      <!-- The keys the text names, in backticks as in the README, show as keys. -->
+      <dd>
+        {#each help.split("`") as part, i (i)}{#if i % 2}<kbd>{part}</kbd>{:else}{part}{/if}{/each}
+      </dd>
     {/each}
   </dl>
   <h4>Comments</h4>
@@ -75,6 +56,7 @@
     display: flex;
     gap: 4px;
     justify-content: flex-end;
+    align-items: flex-start;
   }
 
   dd {

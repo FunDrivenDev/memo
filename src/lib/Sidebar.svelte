@@ -5,6 +5,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import type { Folder, Note, Update } from "./api";
+  import { paneKeys } from "./commands";
   import { reveal } from "./scroll";
   import { age, clock, longDate } from "./time.svelte";
 
@@ -54,7 +55,11 @@
   );
 
   /** The tabs, with the key that shows each. */
-  const tabs = [["notes", "Notes", "⌘1"], ["archive", "Archive", "⌘2"], ["comments", "Comments", "⌘3"]] as const;
+  const tabs = [
+    ["notes", "Notes", paneKeys.notes],
+    ["archive", "Archive", paneKeys.archive],
+    ["comments", "Comments", paneKeys.comments],
+  ] as const;
 
   let list: HTMLElement | undefined = $state();
 
