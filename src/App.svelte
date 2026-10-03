@@ -23,6 +23,8 @@
   const DONE_MS = 1500;
   /** Where the folded folders are kept. */
   const FOLDED_KEY = "memo.folded";
+  /** How often memo looks for a newer version, besides at launch. */
+  const UPDATE_CHECK_MS = 6 * 60 * 60 * 1000;
 
   let library = $state<Library>({
     claude_dir: "",
@@ -171,6 +173,29 @@
     const unlisten = [api.onLibraryChanged(() => reload()), api.onOpenSettings(() => (overlay = "settings"))];
     return () => unlisten.forEach((u) => void u.then((stop) => stop()));
   });
+
+  /** A newer memo, offered at the top of the sidebar. */
+  let update = $state<api.Update | null>(null);
+
+  async function checkUpdate() {
+    try {
+      update = await api.checkUpdate();
+    } catch {
+      // Offline, or GitHub refused: the next check tries again.
+    }
+  }
+
+  $effect(() => {
+    checkUpdate();
+    const timer = setInterval(checkUpdate, UPDATE_CHECK_MS);
+    return () => clearInterval(timer);
+  });
+
+  /** Has Homebrew upgrade memo, which quits for it; another install opens the release page. */
+  function installUpdate() {
+    if (!update) return;
+    (update.homebrew ? api.installUpdate() : api.openUrl(update.url)).catch((e) => show(String(e), true));
+  }
 
   // Reading ends when another note shows, whatever changed the selection.
   $effect(() => {
@@ -443,6 +468,7 @@
     { id: "reload", label: "Reload the folders", keys: "⌘R", run: () => reload(true) },
     { id: "settings", label: "Settings: folders and archive", keys: "⌘,", run: () => (overlay = "settings") },
     { id: "help", label: "Keyboard shortcuts", keys: "?", run: () => (overlay = "help") },
+    ...(update ? [{ id: "update", label: `Update memo to ${update.version}`, run: installUpdate }] : []),
   ]);
 
   function onKeydown(event: KeyboardEvent) {
@@ -544,6 +570,8 @@
     onFold={(path) => fold(path, folded.has(path))}
     onPane={showPane}
     onPalette={openPalette}
+    {update}
+    onUpdate={installUpdate}
   >
     {#snippet commentPane()}
       <CommentList

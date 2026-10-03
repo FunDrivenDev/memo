@@ -4,7 +4,7 @@
 
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { Folder, Note } from "./api";
+  import type { Folder, Note, Update } from "./api";
   import { reveal } from "./scroll";
   import { age, clock, longDate } from "./time.svelte";
 
@@ -21,6 +21,8 @@
     onFold,
     onPane,
     onPalette,
+    update,
+    onUpdate,
     commentPane,
   }: {
     pane: Pane;
@@ -40,6 +42,9 @@
     onFold: (path: string) => void;
     onPane: (pane: Pane) => void;
     onPalette: () => void;
+    /** A newer memo, offered beside the traffic lights. */
+    update: Update | null;
+    onUpdate: () => void;
     /** The list of comments, shown in their pane instead of the notes. */
     commentPane: Snippet;
   } = $props();
@@ -65,6 +70,17 @@
 
 <aside class:archive={pane === "archive"} class:idle={!active}>
   <header data-tauri-drag-region>
+    {#if update}
+      <button
+        class="update"
+        title={update.homebrew
+          ? "Quit memo, upgrade it with Homebrew in a terminal window, then reopen it"
+          : "Open the release page"}
+        onclick={onUpdate}
+      >
+        Update to {update.version}
+      </button>
+    {/if}
     <button class="search" onclick={onPalette} title="Command palette">
       <span>{pane === "archive" ? "Search the archive…" : "Search notes…"}</span>
       <kbd>⌘K</kbd>
@@ -130,8 +146,28 @@
   }
 
   header {
+    position: relative;
     /* Room for the window's traffic lights. */
     padding: 38px 12px 10px;
+  }
+
+  /* Level with the traffic lights, on their right. */
+  .update {
+    position: absolute;
+    top: 9px;
+    right: 12px;
+    padding: 1px 8px;
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .update:hover {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
   }
 
   .panes {

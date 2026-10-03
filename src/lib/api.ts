@@ -127,6 +127,15 @@ export interface SessionDefaults {
   recent: string[];
 }
 
+/** A newer memo in the Homebrew tap. */
+export interface Update {
+  version: string;
+  /** Its release notes. */
+  url: string;
+  /** Whether Homebrew installed this memo, and can upgrade it. */
+  homebrew: boolean;
+}
+
 export const library = () => invoke<Library>("library");
 /** The library, reread with the folders watched afresh. */
 export const refresh = () => invoke<Library>("refresh");
@@ -158,6 +167,10 @@ export const restoreComment = (comment: Comment) => invoke<Comment[]>("restore_c
 export const sessionDefaults = (id: string) => invoke<SessionDefaults>("session_defaults", { id });
 export const startSession = (workdir: string, prompt: string) =>
   invoke<void>("start_session", { workdir, prompt });
+/** A newer memo, if any; never in a development build. */
+export const checkUpdate = () => invoke<Update | null>("check_update");
+/** Quits memo, which Homebrew upgrades in a terminal window and reopens. */
+export const installUpdate = () => invoke<void>("install_update");
 export const reveal = (id: string) => invoke<void>("reveal", { id });
 export const edit = (id: string) => invoke<void>("edit", { id });
 export const openUrl = (url: string) => invoke<void>("open_url", { url });
