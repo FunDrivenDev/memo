@@ -152,23 +152,38 @@ impl Library {
             return Err(format!("{} exists again", last.from.display()));
         }
         notes::move_file(&last.to, &last.from)?;
-        self.follow_move(&last.to, &last.from);
+        if let Err(e) = self.follow_move(&last.to, &last.from) {
+            // Nothing moved, so the move can still be undone.
+            self.last_move = Some(last);
+            return Err(e);
+        }
         Ok(last.from)
     }
 
     /// Throws a note away with `bin`, the macOS Trash outside the tests, and forgets its
-    /// comments.
+    /// comments. They are forgotten first, as the Trash cannot be undone from here: when
+    /// either fails, the note and its comments stay.
     pub fn trash(
         &mut self,
         id: &str,
         bin: impl FnOnce(&Path) -> Result<(), String>,
     ) -> Result<(), String> {
         let path = self.resolve(id)?;
-        bin(&path)?;
-        let _ = self.change_comments(|c| {
-            comments::forget(c, &path);
-            Ok(())
-        });
+        let kept = self.comments.clone();
+        let mut next = kept.clone();
+        if comments::forget(&mut next, &path) {
+            comments::save(&self.comments_file, &next)
+                .map_err(|e| format!("Could not save the comments, so the note stays: {e}"))?;
+            self.comments = next;
+        }
+        if let Err(e) = bin(&path) {
+            if self.comments != kept {
+                comments::save(&self.comments_file, &kept)
+                    .map_err(|back| format!("{e}; and its comments are lost: {back}"))?;
+                self.comments = kept;
+            }
+            return Err(e);
+        }
         Ok(())
     }
 
@@ -214,12 +229,23 @@ impl Library {
         Ok(self.comments.clone())
     }
 
-    /// Carries the comments of a note memo moved to its new path.
-    fn follow_move(&mut self, from: &Path, to: &Path) {
-        let _ = self.change_comments(|c| {
-            comments::rename(c, from, to);
-            Ok(())
-        });
+    /// Carries the comments of a note memo just moved to its new path; when they cannot be
+    /// saved, moves the note back, so a note never parts from its comments.
+    fn follow_move(&mut self, from: &Path, to: &Path) -> Result<(), String> {
+        let mut next = self.comments.clone();
+        if !comments::rename(&mut next, from, to) {
+            return Ok(());
+        }
+        if let Err(e) = comments::save(&self.comments_file, &next) {
+            return Err(match notes::move_file(to, from) {
+                Ok(()) => format!("Could not save the comments, so the note stays: {e}"),
+                Err(back) => {
+                    format!("Could not save the comments ({e}), nor move the note back: {back}")
+                }
+            });
+        }
+        self.comments = next;
+        Ok(())
     }
 
     /// Moves a note into `dir` and remembers it for `undo`.
@@ -232,7 +258,7 @@ impl Library {
             ));
         }
         let to = notes::move_into(&from, dir)?;
-        self.follow_move(&from, &to);
+        self.follow_move(&from, &to)?;
         self.last_move = Some(Move {
             from,
             to: to.clone(),
@@ -388,6 +414,77 @@ mod tests {
         assert!(!note.exists());
         assert!(library.snapshot().comments.is_empty());
         assert!(comments::load(&library.comments_file).is_empty());
+    }
+
+    /// Has every later save of the comments fail, their folder being a file.
+    fn break_comments_file(root: &tempfile::TempDir, library: &mut Library) {
+        let blocker = base(root).join("blocker");
+        std::fs::write(&blocker, "").unwrap();
+        library.comments_file = blocker.join("comments.json");
+    }
+
+    #[test]
+    fn a_move_whose_comments_cannot_be_saved_is_undone_and_reported() {
+        let (root, mut library) = setup();
+        let note = base(&root).join("plans/a.md");
+        let before = library.add_comment(&id(&note), "check", anchor()).unwrap();
+        break_comments_file(&root, &mut library);
+
+        let error = library.archive(&id(&note)).unwrap_err();
+        assert!(error.starts_with("Could not save the comments"), "{error}");
+        assert!(note.is_file());
+        assert!(!base(&root).join("archive/plans/a.md").exists());
+        assert_eq!(library.snapshot().comments, before);
+        assert_eq!(library.undo().unwrap_err(), "Nothing to undo");
+    }
+
+    #[test]
+    fn an_undo_whose_comments_cannot_be_saved_can_be_tried_again() {
+        let (root, mut library) = setup();
+        let note = base(&root).join("plans/a.md");
+        library.add_comment(&id(&note), "check", anchor()).unwrap();
+        let archived = library.archive(&id(&note)).unwrap();
+        let comments_file = library.comments_file.clone();
+        break_comments_file(&root, &mut library);
+
+        assert!(library.undo().is_err());
+        assert!(archived.is_file() && !note.exists());
+        library.comments_file = comments_file;
+        assert_eq!(library.undo().unwrap(), note);
+        assert_eq!(library.snapshot().comments[0].note, id(&note));
+    }
+
+    #[test]
+    fn a_note_without_comments_moves_whatever_their_file() {
+        let (root, mut library) = setup();
+        break_comments_file(&root, &mut library);
+        assert!(
+            library
+                .archive(&id(&base(&root).join("plans/a.md")))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn trash_keeps_the_note_and_its_comments_when_either_fails() {
+        let (root, mut library) = setup();
+        let note = base(&root).join("plans/a.md");
+        let before = library.add_comment(&id(&note), "check", anchor()).unwrap();
+
+        let error = library
+            .trash(&id(&note), |_| Err("the Trash is full".into()))
+            .unwrap_err();
+        assert_eq!(error, "the Trash is full");
+        assert_eq!(library.snapshot().comments, before);
+        assert_eq!(comments::load(&library.comments_file), before);
+
+        break_comments_file(&root, &mut library);
+        let error = library
+            .trash(&id(&note), |_| panic!("trashed despite the comments"))
+            .unwrap_err();
+        assert!(error.starts_with("Could not save the comments"), "{error}");
+        assert!(note.is_file());
+        assert_eq!(library.snapshot().comments, before);
     }
 
     #[test]
