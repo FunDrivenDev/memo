@@ -80,10 +80,14 @@ function mockTauri(
     restore_comment: ({ comment }) => saved.push(comment as Record<string, unknown>),
   };
   let callbacks = 0;
+  // The commands called, in order, for the tests to read back.
+  const invoked: string[] = [];
   Object.assign(globalThis, {
     savedComments: saved,
+    invoked,
     __TAURI_INTERNALS__: {
       invoke: (cmd: string, args: Record<string, unknown>) => {
+        invoked.push(cmd);
         if (cmd === "copy") Object.assign(globalThis, { copied: args.text });
         if (cmd === "start_session") Object.assign(globalThis, { session: args });
         if (cmd === "install_update" || cmd === "open_url") {
@@ -95,6 +99,7 @@ function mockTauri(
           comment(JSON.parse(JSON.stringify(args)));
           return Promise.resolve(JSON.parse(JSON.stringify(saved)));
         }
+        if (cmd === "trash") return Promise.resolve(library(list.filter((n) => n.id !== args.id)));
         return Promise.resolve(replies[cmd] ?? null);
       },
       transformCallback: () => ++callbacks,
