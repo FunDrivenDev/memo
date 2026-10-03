@@ -10,11 +10,13 @@ export interface Fixture {
   after?: string;
   /** The comments saved already, as the Rust side keeps them. */
   comments?: unknown[];
+  /** How many notes land in the folder after launch, unseen by the watcher: only `refresh` lists them. */
+  added?: number;
 }
 
 /** Stands in for the Rust commands: one folder of notes, each a column of numbered paragraphs. */
-function mockTauri({ notes, paragraphs, after = "", comments = [] }: Fixture) {
-  const list = Array.from({ length: notes }, (_, i) => ({
+function mockTauri({ notes, paragraphs, after = "", comments = [], added = 0 }: Fixture) {
+  const all = Array.from({ length: notes + added }, (_, i) => ({
     id: `/notes/plans/note-${i}.md`,
     folder: "plans",
     file_name: `note-${i}.md`,
@@ -22,21 +24,24 @@ function mockTauri({ notes, paragraphs, after = "", comments = [] }: Fixture) {
     excerpt: "",
     modified: 0,
   }));
+  const list = all.slice(0, notes);
   const html = Array.from(
     { length: paragraphs },
     (_, i) => `<p data-sourcepos="${2 * i + 1}:1-${2 * i + 1}:20">Paragraph ${i}</p>`,
   ).join("") + after;
+  const library = (notes: unknown[]) => ({
+    claude_dir: "/claude",
+    custom: false,
+    folders: [{ name: "plans", path: "/notes/plans" }],
+    notes,
+    archive: "/notes/archive",
+    archive_folders: [],
+    archived: [],
+    comments,
+  });
   const replies: Record<string, unknown> = {
-    library: {
-      claude_dir: "/claude",
-      custom: false,
-      folders: [{ name: "plans", path: "/notes/plans" }],
-      notes: list,
-      archive: "/notes/archive",
-      archive_folders: [],
-      archived: [],
-      comments,
-    },
+    library: library(list),
+    refresh: library(all),
     render: { html, words: paragraphs * 2 },
     // Every search finds the second comment, when there is one.
     search: {

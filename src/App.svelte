@@ -16,6 +16,9 @@
 
   /** How long an archive, restore or trash can be undone with `u`. */
   const UNDO_MS = 6000;
+  /** The shortest spin of the reload icon, and how long its check shows after. */
+  const SPIN_MS = 400;
+  const DONE_MS = 1500;
 
   let library = $state<Library>({
     claude_dir: "",
@@ -114,17 +117,39 @@
     selectedId = (ordered[Math.max(0, Math.min(before, ordered.length - 1))] ?? null)?.id ?? null;
   }
 
-  async function reload() {
+  /** What the icon in the top right corner shows: the folders being read, just read, or failing. */
+  let sync = $state<"idle" | "busy" | "done" | "error">("idle");
+  let syncError = $state("");
+  let syncTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The latest reload, the only one that sets the icon. */
+  let reloads = 0;
+
+  /** Rereads the folders; `force` also watches them afresh, for a change the watcher missed. */
+  async function reload(force = false) {
+    const run = ++reloads;
+    clearTimeout(syncTimer);
+    sync = "busy";
+    // Spins long enough to be seen, the read itself often taking a few milliseconds.
+    const spin = new Promise((done) => setTimeout(done, SPIN_MS));
     try {
-      apply(await api.library());
+      const next = await (force ? api.refresh() : api.library());
+      if (run !== reloads) return;
+      apply(next);
+      await spin;
+      if (run !== reloads) return;
+      sync = "done";
+      syncTimer = setTimeout(() => (sync = "idle"), DONE_MS);
     } catch (e) {
-      show(String(e), true);
+      if (run !== reloads) return;
+      sync = "error";
+      syncError = String(e);
+      show(syncError, true);
     }
   }
 
   $effect(() => {
     reload();
-    const unlisten = [api.onLibraryChanged(reload), api.onOpenSettings(() => (overlay = "settings"))];
+    const unlisten = [api.onLibraryChanged(() => reload()), api.onOpenSettings(() => (overlay = "settings"))];
     return () => unlisten.forEach((u) => void u.then((stop) => stop()));
   });
 
@@ -359,7 +384,7 @@
     { id: "trash", label: "Move note to the Trash", keys: "t", run: withNote(trash) },
     { id: "edit", label: "Open in editor", keys: "e", run: edit },
     { id: "reveal", label: "Reveal in Finder", keys: "o", run: revealNote },
-    { id: "reload", label: "Reload", keys: "⌘R", run: reload },
+    { id: "reload", label: "Reload the folders", keys: "⌘R", run: () => reload(true) },
     { id: "settings", label: "Settings: folders and archive", keys: "⌘,", run: () => (overlay = "settings") },
     { id: "help", label: "Keyboard shortcuts", keys: "?", run: () => (overlay = "help") },
   ]);
@@ -385,7 +410,7 @@
     }
     if (event.metaKey && event.key === "r") {
       event.preventDefault();
-      reload();
+      reload(true);
       return;
     }
     const target = event.target as HTMLElement;
@@ -542,6 +567,19 @@
   />
 {/if}
 
+<button
+  class="sync {sync}"
+  title={{ idle: "Reload the folders (⌘R)", busy: "Reading the folders…", done: "Up to date", error: syncError }[sync]}
+  aria-label="Reload the folders"
+  onclick={() => reload(true)}
+>
+  {#if sync === "done"}
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>
+  {:else}
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.5h-2.5" /></svg>
+  {/if}
+</button>
+
 {#if toast}
   {#key toast}
   <div class="toast" class:error={toast.error} role="status">
@@ -581,6 +619,68 @@
   .blank p {
     max-width: 52ch;
     line-height: 1.6;
+  }
+
+  /* Sits in the note header's right padding, clear of the traffic lights. */
+  .sync {
+    position: fixed;
+    top: 11px;
+    right: 9px;
+    z-index: 5;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--overlay0);
+    opacity: 0.55;
+    cursor: pointer;
+    transition: opacity 200ms, color 200ms;
+  }
+
+  .sync:hover,
+  .sync.busy,
+  .sync.done,
+  .sync.error {
+    opacity: 1;
+  }
+
+  .sync svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .sync.busy svg {
+    color: var(--accent);
+    animation: spin 700ms linear infinite;
+  }
+
+  .sync.done {
+    color: var(--green);
+    animation: pop 200ms ease-out;
+  }
+
+  .sync.error {
+    color: var(--red);
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes pop {
+    from {
+      transform: scale(0.6);
+    }
   }
 
   .toast {

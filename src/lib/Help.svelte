@@ -22,7 +22,7 @@
     ["t", "Move the note to the Trash"],
     ["e", "Open the note in the default editor"],
     ["o", "Reveal the note in Finder"],
-    ["⌘R", "Reload"],
+    ["⌘R", "Reload the folders, for a new note that does not show"],
     ["⌘,", "Settings: folders and archive"],
     ["?", "This help"],
   ];

@@ -20,7 +20,7 @@ The Archive tab above the sidebar shows the archive, one section per folder note
 
 Changing the archive folder leaves the notes already archived where they are: move them in Finder.
 
-Each existing folder becomes a sidebar section. The section lists the `.md` files directly inside it, most recently modified first. The folders are watched, so new notes appear as Claude writes them.
+Each existing folder becomes a sidebar section. The section lists the `.md` files directly inside it, most recently modified first. The folders are watched, so new notes appear as Claude writes them; `⌘R`, or a click on the icon in the top right corner, rereads them all. The icon spins while memo reads the folders, shows a check once done and turns red on an error.
 
 ## Comments
 
@@ -50,7 +50,7 @@ A click on a highlight or a comment focuses it, as does the reading cursor on it
 | `t` | Move to the macOS Trash, after a 6-second countdown `u` can cancel |
 | `e` | Open in the default editor |
 | `o` | Reveal in Finder |
-| `⌘R` | Reload |
+| `⌘R` | Reload: reread the folders and watch them afresh, for a new note that does not show |
 | `⌘,` | Settings: folders and archive |
 | `?` | Help |
 
