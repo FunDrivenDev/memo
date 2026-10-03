@@ -1,7 +1,7 @@
 import { type Browser, chromium, type Page } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 import type * as api from "../src/lib/api.ts";
-import type { Comment, Library, Note, Update } from "../src/lib/api.ts";
+import type { Comment, Library, Moved, Note, Update } from "../src/lib/api.ts";
 
 type Reply<F extends (...args: never[]) => Promise<unknown>> = Awaited<ReturnType<F>>;
 
@@ -52,45 +52,93 @@ export interface Fixture {
   comments?: Comment[];
   /** How many notes land in the folder after launch, unseen by the watcher: only `refresh` lists them. */
   added?: number;
+  /** How many notes the archive holds, dealt among the folders' sections in turn. */
+  archived?: number;
   /** The newer memo `check_update` finds, if any. */
   update?: Update | null;
 }
 
 /** Stands in for the Rust commands: folders of notes, each a column of numbered paragraphs. */
 function mockTauri(
-  { notes, folders = ["plans"], paragraphs, after = "", comments = [], added = 0, update = null }: Fixture,
+  {
+    notes,
+    folders = ["plans"],
+    paragraphs,
+    after = "",
+    comments = [],
+    added = 0,
+    archived = 0,
+    update = null,
+  }: Fixture,
 ) {
-  const all: Note[] = Array.from({ length: notes + added }, (_, i) => ({
-    id: `/notes/${folders[i % folders.length]}/note-${i}.md`,
-    folder: folders[i % folders.length]!,
-    file_name: `note-${i}.md`,
-    title: `Note ${i}`,
-    excerpt: "",
-    modified: 0,
-  }));
-  const list = all.slice(0, notes);
+  const note = (dir: string, name: string, title: string, i: number): Note => {
+    const folder = folders[i % folders.length]!;
+    return {
+      id: `${dir}/${folder}/${name}-${i}.md`,
+      folder,
+      file_name: `${name}-${i}.md`,
+      title,
+      excerpt: "",
+      modified: 0,
+    };
+  };
+  const all = Array.from({ length: notes + added }, (_, i) => note("/notes", "note", `Note ${i}`, i));
+  // The notes listed, those the watcher has not seen yet, and the archived ones: archive, restore and undo move
+  // notes between the first and the last.
+  const listed = all.slice(0, notes);
+  const unseen = all.slice(notes);
+  const archive = Array.from(
+    { length: archived },
+    (_, i) => note("/notes/archive", "archived", `Archived ${i}`, i),
+  );
+  const byTitle = (a: Note, b: Note) => a.title.localeCompare(b.title, "en", { numeric: true });
+  /** Moves the note `id` into the archive or out of it, and returns its new path. */
+  const move = (id: string, into: "archive" | "folders"): string => {
+    const [from, to, dir] = into === "archive"
+      ? [listed, archive, "/notes/archive"]
+      : [archive, listed, "/notes"];
+    const at = from.findIndex((n) => n.id === id);
+    if (at < 0) throw new Error(`${id} is not ${into === "archive" ? "in the folders" : "archived"}`);
+    const [moved] = from.splice(at, 1);
+    const path = `${dir}/${moved!.folder}/${moved!.file_name}`;
+    to.push({ ...moved!, id: path });
+    to.sort(byTitle);
+    return path;
+  };
+  // The last archive or restore, which `undo` moves back.
+  let last: { id: string; back: "archive" | "folders" } | null = null;
+  const moved = (id: string, into: "archive" | "folders"): Moved => {
+    const to = move(id, into);
+    last = { id: to, back: into === "archive" ? "folders" : "archive" };
+    return { id: to, library: library() };
+  };
   const html = Array.from(
     { length: paragraphs },
     (_, i) => `<p data-sourcepos="${2 * i + 1}:1-${2 * i + 1}:20">Paragraph ${i}</p>`,
   ).join("") + after;
   // The comments as the Rust side keeps them, for the tests to read back.
   const saved = comments;
-  const library = (notes: Note[]): Library => ({
+  const library = (): Library => ({
     claude_dir: "/claude",
     custom: false,
     folders: folders.map((name) => ({ name, path: `/notes/${name}` })),
-    notes,
+    notes: listed,
     archive: "/notes/archive",
-    archive_folders: [],
-    archived: [],
+    archive_folders: folders.filter((name) => archive.some((n) => n.folder === name)).map((name) => ({
+      name,
+      path: `/notes/archive/${name}`,
+    })),
+    archived: archive,
     comments: saved,
   });
-  // Through JSON, as Tauri sends them: the front end's objects may be Svelte proxies.
-  const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
   let ids = 0;
   const handlers: Handlers = {
-    library: () => library(list),
-    refresh: () => library(all),
+    library,
+    refresh: () => {
+      listed.push(...unseen.splice(0));
+      listed.sort(byTitle);
+      return library();
+    },
     render: () => ({ html, words: paragraphs * 2 }),
     // Every search finds the second comment, when there is one.
     search: () => ({
@@ -102,23 +150,34 @@ function mockTauri(
         snippets: [{ line: 1, text: body, indices: [0] }],
       })),
     }),
-    trash: ({ id }) => library(list.filter((n) => n.id !== id)),
+    archive: ({ id }) => moved(id as string, "archive"),
+    restore: ({ id }) => moved(id as string, "folders"),
+    undo: () => {
+      if (!last) throw new Error("Nothing to undo");
+      const { id, back } = last;
+      last = null;
+      return { id: move(id, back), library: library() };
+    },
+    trash: ({ id }) => {
+      listed.splice(listed.findIndex((n) => n.id === id), 1);
+      return library();
+    },
     add_comment: (args) => {
-      const { note, body, anchor } = copy(args) as Pick<Comment, "note" | "body" | "anchor">;
+      const { note, body, anchor } = args as Pick<Comment, "note" | "body" | "anchor">;
       saved.push({ id: `c${++ids}`, note, body, anchor, created: ids, updated: ids });
-      return copy(saved);
+      return saved;
     },
     edit_comment: ({ id, body }) => {
       Object.assign(saved.find((c) => c.id === id)!, { body });
-      return copy(saved);
+      return saved;
     },
     resolve_comment: ({ id }) => {
       saved.splice(saved.findIndex((c) => c.id === id), 1);
-      return copy(saved);
+      return saved;
     },
-    restore_comment: (args) => {
-      saved.push(copy(args.comment as Comment));
-      return copy(saved);
+    restore_comment: ({ comment }) => {
+      saved.push(comment as Comment);
+      return saved;
     },
     session_defaults: () => ({
       workdir: "~/Code/memo",
@@ -137,6 +196,7 @@ function mockTauri(
     create_folder: () => {},
     open_privacy_settings: () => {},
   };
+  const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
   let callbacks = 0;
   // The commands called, in order, and those the mock has no reply for, for the tests to read back.
   const invoked: string[] = [];
@@ -157,7 +217,10 @@ function mockTauri(
           return Promise.reject(new Error(`unmocked command: ${cmd}`));
         }
         try {
-          return Promise.resolve(handler(args));
+          // Through JSON both ways, as Tauri sends them: the front end's objects may be Svelte proxies, and the
+          // mock's state must not leak into them.
+          const reply = handler(copy(args ?? {}));
+          return Promise.resolve(reply === undefined ? reply : copy(reply));
         } catch (e) {
           return Promise.reject(e);
         }
