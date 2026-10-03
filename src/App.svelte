@@ -6,6 +6,15 @@
   import type { Anchor, Comment, Library, Note } from "./lib/api";
   import CommentList, { type CommentItem } from "./lib/CommentList.svelte";
   import Help from "./lib/Help.svelte";
+  import {
+    type Command as KeyCommand,
+    commandFor,
+    commands,
+    type Handler,
+    keyName,
+    paneKeys,
+    type RunId,
+  } from "./lib/commands";
   import { foldStep, listStep } from "./lib/keys";
   import NoteView from "./lib/NoteView.svelte";
   import Palette, { type Command } from "./lib/Palette.svelte";
@@ -379,51 +388,49 @@
   const edit = withNote((n) => api.edit(n.id).catch((e) => show(String(e), true)));
   const revealNote = withNote((n) => api.reveal(n.id).catch((e) => show(String(e), true)));
 
-  const commands: Command[] = $derived([
-    { id: "session", label: "Start a Claude Code session", keys: "s", run: withNote(() => (overlay = "session")) },
-    {
-      id: "archive",
-      label: selectedArchived ? "Restore note from the archive" : "Archive note",
-      keys: "a",
-      run: withNote(archiveOrRestore),
-    },
-    { id: "notes", label: "Show the notes", keys: "⌘1", run: () => showPane("notes") },
-    { id: "archived", label: "Show the archive", keys: "⌘2", run: () => showPane("archive") },
-    { id: "comments", label: "Show the comments", keys: "⌘3", run: () => showPane("comments") },
-    { id: "search-comments", label: "Search the comments", keys: "/", run: searchComments },
-    { id: "comment", label: "Comment on the selection or the item read", keys: "c", run: () => view?.comment() },
-    { id: "resolve", label: "Resolve the comment", keys: "r", run: resolveFocused },
-    { id: "trash", label: "Move note to the Trash", keys: "t", run: withNote(trash) },
-    { id: "edit", label: "Open in editor", keys: "e", run: edit },
-    { id: "reveal", label: "Reveal in Finder", keys: "o", run: revealNote },
-    { id: "reload", label: "Reload the folders", keys: "⌘R", run: () => reload(true) },
-    { id: "settings", label: "Settings: folders and archive", keys: "⌘,", run: () => (overlay = "settings") },
-    { id: "help", label: "Keyboard shortcuts", keys: "?", run: () => (overlay = "help") },
+  /** What each command of the table does, given the key that ran it. */
+  const handlers: Record<RunId, Handler> = {
+    palette: () => (overlay === "palette" ? (overlay = null) : openPalette()),
+    read: () => (reading || pane === "comments" ? view?.editFocused() : startReading()),
+    folder: (key) => (pane === "comments" ? moveCommentedNote : moveFolder)(key === "⇧⇥" ? -1 : 1),
+    pane: (key) => showPane(panes[key]!),
+    scroll: (key) => view?.scroll(key === "⇧space" ? -1 : 1),
+    comment: () => view?.comment(),
+    session: withNote(() => (overlay = "session")),
+    resolve: resolveFocused,
+    search: searchComments,
+    archive: withNote(archiveOrRestore),
+    undo,
+    trash: withNote(trash),
+    edit,
+    reveal: revealNote,
+    reload: () => reload(true),
+    settings: () => (overlay = "settings"),
+    help: () => (overlay = "help"),
+  };
+  const panes = Object.fromEntries(Object.entries(paneKeys).map(([pane, key]) => [key, pane as Pane]));
+
+  /** The palette's commands: those of the table it lists, then the update when there is one. */
+  const paletteCommands: Command[] = $derived([
+    ...commands.flatMap((command: KeyCommand) =>
+      Object.entries(command.palette ?? {}).map(([key, label]) => ({
+        id: `${command.id}${command.keys.length > 1 ? `-${key}` : ""}`,
+        label: typeof label === "string" ? label : label[selectedArchived ? "archive" : "notes"],
+        keys: key,
+        run: () => handlers[command.id as RunId](key),
+      }))
+    ),
     ...(update ? [{ id: "update", label: `Update memo to ${update.version}`, run: installUpdate }] : []),
   ]);
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.metaKey && event.key === "k") {
-      event.preventDefault();
-      if (overlay === "palette") overlay = null;
-      else openPalette();
-      return;
-    }
+    const key = keyName(event);
+    const command = commandFor(key);
+    // ⌘ keys act on memo itself: in a field too, and over a dialog for some.
     // The Settings… menu item normally takes ⌘, first; this covers a missing menu.
-    if (event.metaKey && event.key === ",") {
+    if (command && (command.scope === "anywhere" || (command.scope === "window" && !overlay))) {
       event.preventDefault();
-      overlay = "settings";
-      return;
-    }
-    const panes: Record<string, Pane> = { "1": "notes", "2": "archive", "3": "comments" };
-    if (event.metaKey && panes[event.key] && !overlay) {
-      event.preventDefault();
-      showPane(panes[event.key]!);
-      return;
-    }
-    if (event.metaKey && event.key === "r") {
-      event.preventDefault();
-      reload(true);
+      handlers[command.id](key);
       return;
     }
     const target = event.target as HTMLElement;
@@ -455,32 +462,12 @@
       }
     }
 
-    // One key per action: ⌘ is spelt out, ⇧ only in the character it gives (`?`, `A`), or in Tab and space.
-    const key = event.metaKey ? `⌘${event.key}` : event.key;
-    const actions: Record<string, () => void> = {
-      Tab: () => (pane === "comments" ? moveCommentedNote : moveFolder)(event.shiftKey ? -1 : 1),
-      " ": () => view?.scroll(event.shiftKey ? -1 : 1),
-      "?": () => (overlay = "help"),
-      c: () => view?.comment(),
-      s: withNote(() => (overlay = "session")),
-      r: resolveFocused,
-      "/": searchComments,
-      a: withNote(archiveOrRestore),
-      u: undo,
-      t: withNote(trash),
-      e: edit,
-      o: revealNote,
-    };
-    const noteKeys: Record<string, () => void> = reading
-      ? {
-          Escape: stopReading,
-          Enter: () => view?.editFocused(),
-        }
-      : { Enter: pane === "comments" ? () => view?.editFocused() : startReading };
-    const action = noteKeys[key] ?? actions[key];
-    if (action) {
+    if (reading && key === "esc") {
       event.preventDefault();
-      action();
+      stopReading();
+    } else if (command?.scope === "note") {
+      event.preventDefault();
+      handlers[command.id](key);
     }
   }
 </script>
@@ -573,7 +560,7 @@
     {notes}
     {archived}
     bind:archive={paletteArchive}
-    {commands}
+    commands={paletteCommands}
     onOpen={(id, line) => {
       overlay = null;
       openNote(id);
