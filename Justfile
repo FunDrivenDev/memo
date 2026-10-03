@@ -55,12 +55,9 @@ ci: check
     deno task tauri build --no-bundle
     CC_aarch64_apple_darwin=clang cargo clippy --manifest-path {{ MANIFEST }} --target aarch64-apple-darwin --all-targets --locked -- -D warnings
 
-# Audit security: secrets or personal data anywhere in the history, vulnerable or unknown-source dependencies, unsafe workflows.
-audit:
-    gitleaks git --config .gitleaks.toml --redact --no-banner --log-level warn .
-    cargo deny --manifest-path {{ MANIFEST }} --config deny.toml check advisories sources
-    deno audit
-    zizmor --quiet .
+# Audit security: secrets or personal data anywhere in the history, vulnerable or unknown-source dependencies, unsafe workflows; `family` narrows it to secrets, rust, web or workflows.
+audit family="":
+    scripts/audit.sh {{ quote(family) }}
 
 # Refuse an app bundle that carries a secret or a home directory path, before it goes public.
 scan-app path=APP:

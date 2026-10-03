@@ -2,6 +2,10 @@
 # the macOS code through its Rust target; `just audit` runs beside it, and `just cask`
 # checks the cask against the rules of the latest Homebrew, which needs macOS.
 #
+# A pull request runs only what its changes need, as scripts/changes.sh decides: a change
+# to the docs lints the Markdown and the spelling, and scans for secrets. Main, which
+# releases, checks everything on each push.
+#
 # The Rust cache follows GitHub's cache scopes: a run restores its own branch's newest
 # entry first, then main's, so a new pull request starts from main's cache and its later
 # commits from its own. A run saves a new entry whenever the lockfile or toolchain moved.
@@ -21,7 +25,38 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      check: ${{ steps.changes.outputs.check }}
+      lint: ${{ steps.changes.outputs.lint }}
+      audit: ${{ steps.changes.outputs.audit }}
+      cask: ${{ steps.changes.outputs.cask }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request checks out its merge commit, whose first parent is the base.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Decide what the changes need checked
+        id: changes
+        shell: bash
+        run: |
+          if [[ "$EVENT" == pull_request ]]; then
+            git diff --name-only HEAD^1 HEAD | scripts/changes.sh
+          else
+            scripts/changes.sh --all
+          fi | tee -a "$GITHUB_OUTPUT"
+        env:
+          EVENT: ${{ github.event_name }}
+
   check:
+    needs: changes
+    if: needs.changes.outputs.check == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
@@ -49,7 +84,31 @@ jobs:
       - name: Check, build for Linux, lint for macOS
         run: just ci
 
+  # What `just ci` would lint, when the changes need no more.
+  lint:
+    needs: changes
+    if: needs.changes.outputs.check != 'true' && needs.changes.outputs.lint != ''
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: just rumdl taplo shellcheck actionlint typos
+          cache: false
+
+      - name: Lint what changed
+        run: for family in $FAMILIES; do just lint "$family"; done
+        env:
+          FAMILIES: ${{ needs.changes.outputs.lint }}
+
   audit:
+    needs: changes
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
@@ -64,15 +123,19 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
 
       - name: Install the dependencies from the lockfiles
+        if: contains(needs.changes.outputs.audit, 'rust') || contains(needs.changes.outputs.audit, 'web')
         run: just install frozen
 
-      - name: Audit secrets, personal data, dependencies and workflows
-        run: just audit
+      - name: Audit secrets, personal data, and what changed of the dependencies and workflows
+        run: for family in $FAMILIES; do just audit "$family"; done
         env:
+          FAMILIES: ${{ needs.changes.outputs.audit }}
           # Lets zizmor check the pinned actions online.
           GH_TOKEN: ${{ github.token }}
 
   cask:
+    needs: changes
+    if: needs.changes.outputs.cask == 'true'
     runs-on: macos-26
     timeout-minutes: 15
     permissions:
