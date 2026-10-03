@@ -71,6 +71,8 @@ Every search word must match fuzzily, in the title or on one line; notes whose t
 brew install fundrivendev/tap/memo
 ```
 
+CI checks a pull request for what its changes need only, as `scripts/changes.sh` decides: a change to the docs lints the Markdown and the spelling and scans for secrets, one to the code runs `just ci`, one to the cask checks it on macOS. It checks everything on `main`.
+
 Every merge to `main` is released once CI passes on it. The Release workflow waits 5 minutes and releases only `main`'s head, so pull requests merged close together ship as one release. It bumps the patch version, or the minor or major one when a pull request in the release carries the `minor` or `major` label. It builds the app on macOS and installs it there from the cask, then, on Linux, scans it for secrets and home directory paths, tags the commit and releases it. It then copies the app to [FunDrivenDev/homebrew-tap](https://github.com/FunDrivenDev/homebrew-tap) and updates its cask, so `brew upgrade` picks it up. The tag and the cask commit are signed as Fun Driven Stuff <stuff@fundriven.dev>. If a release fails, "Re-run failed jobs" finishes it.
 
 Every job runs on GitHub-hosted runners, free and unlimited for a public repository, and on Linux except the app build and the cask check.
