@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     permissions:
       contents: read
@@ -50,7 +50,7 @@ jobs:
         run: just ci
 
   audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -73,7 +73,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   cask:
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 15
     permissions:
       contents: read

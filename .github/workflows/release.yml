@@ -29,7 +29,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
       && github.event.workflow_run.event == 'push'
       && github.event.workflow_run.head_repository.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -77,7 +77,7 @@ jobs:
   build:
     needs: settle
     if: needs.settle.outputs.version != ''
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 45
     permissions:
       contents: read
@@ -123,7 +123,7 @@ jobs:
 
   release:
     needs: [settle, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     # Holds SIGNING_KEY and TAP_TOKEN.
     environment: release
