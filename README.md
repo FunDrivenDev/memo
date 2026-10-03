@@ -20,7 +20,7 @@ The Archive tab above the sidebar shows the archive, one section per folder note
 
 Changing the archive folder leaves the notes already archived where they are: move them in Finder.
 
-Each existing folder becomes a sidebar section. The section lists the `.md` files directly inside it, most recently modified first. The folders are watched, so new notes appear as Claude writes them; `⌘R`, or a click on the icon in the top right corner, rereads them all. The icon spins while memo reads the folders, shows a check once done and turns red on an error.
+Each existing folder becomes a sidebar section. The section lists the `.md` files directly inside it, most recently modified first. A click on a section's header, or `←` on one of its notes, folds it down to the header, which `↓` `↑` then stop on; `→` or another click unfolds it. memo remembers the folded folders across launches. The folders are watched, so new notes appear as Claude writes them; `⌘R`, or a click on the icon in the top right corner, rereads them all. The icon spins while memo reads the folders, shows a check once done and turns red on an error.
 
 ## Comments
 
@@ -38,6 +38,7 @@ A click on a highlight or a comment focuses it, as does the reading cursor on it
 | `↓` `↑` | Next or previous note (in the Comments tab: comment) |
 | `⌘↑` `⌘↓` | First or last note |
 | `↵` | Read the note: `↓` `↑` move through its paragraphs, list items, code and tables, skipping headings, and keep the current one mid-height; `⌘↑` `⌘↓` go to the first or last; `⇧↓` `⇧↑` span more of them; `↵` edits the comment on them; `esc` goes back to the list |
+| `←` `→` | Fold the folder of the note, or unfold the folder selected |
 | `⇥` `⇧⇥` | Next or previous folder |
 | `⌘1` `⌘2` `⌘3` | Notes, Archive or Comments tab |
 | `space` `⇧space` | Scroll the note by a page |

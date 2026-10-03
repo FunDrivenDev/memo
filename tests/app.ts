@@ -2,8 +2,10 @@ import { type Browser, chromium, type Page } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 
 export interface Fixture {
-  /** How many notes the one folder holds. */
+  /** How many notes the folders hold, dealt among them in turn. */
   notes: number;
+  /** The folders' names, `plans` alone by default. */
+  folders?: string[];
   /** How many paragraphs each note renders to. */
   paragraphs: number;
   /** HTML rendered after the paragraphs. */
@@ -14,11 +16,13 @@ export interface Fixture {
   added?: number;
 }
 
-/** Stands in for the Rust commands: one folder of notes, each a column of numbered paragraphs. */
-function mockTauri({ notes, paragraphs, after = "", comments = [], added = 0 }: Fixture) {
+/** Stands in for the Rust commands: folders of notes, each a column of numbered paragraphs. */
+function mockTauri(
+  { notes, folders = ["plans"], paragraphs, after = "", comments = [], added = 0 }: Fixture,
+) {
   const all = Array.from({ length: notes + added }, (_, i) => ({
-    id: `/notes/plans/note-${i}.md`,
-    folder: "plans",
+    id: `/notes/${folders[i % folders.length]}/note-${i}.md`,
+    folder: folders[i % folders.length],
     file_name: `note-${i}.md`,
     title: `Note ${i}`,
     excerpt: "",
@@ -32,7 +36,7 @@ function mockTauri({ notes, paragraphs, after = "", comments = [], added = 0 }: 
   const library = (notes: unknown[]) => ({
     claude_dir: "/claude",
     custom: false,
-    folders: [{ name: "plans", path: "/notes/plans" }],
+    folders: folders.map((name) => ({ name, path: `/notes/${name}` })),
     notes,
     archive: "/notes/archive",
     archive_folders: [],

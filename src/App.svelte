@@ -5,7 +5,7 @@
   import type { Anchor, Comment, Library, Moved, Note } from "./lib/api";
   import CommentList, { type CommentItem } from "./lib/CommentList.svelte";
   import Help from "./lib/Help.svelte";
-  import { listStep } from "./lib/keys";
+  import { foldStep, listStep } from "./lib/keys";
   import NoteView from "./lib/NoteView.svelte";
   import Palette, { type Command } from "./lib/Palette.svelte";
   import SessionDialog from "./lib/SessionDialog.svelte";
@@ -13,12 +13,16 @@
   import Sidebar, { type Pane } from "./lib/Sidebar.svelte";
 
   type Overlay = "palette" | "session" | "help" | "settings";
+  /** A stop of the list: a note, or a folded folder. */
+  type Row = { note: string } | { folder: string };
 
   /** How long an archive, restore or trash can be undone with `u`. */
   const UNDO_MS = 6000;
   /** The shortest spin of the reload icon, and how long its check shows after. */
   const SPIN_MS = 400;
   const DONE_MS = 1500;
+  /** Where the folded folders are kept. */
+  const FOLDED_KEY = "memo.folded";
 
   let library = $state<Library>({
     claude_dir: "",
@@ -33,8 +37,13 @@
   let loaded = $state(false);
   let pane = $state<Pane>("notes");
   let selectedId = $state<string | null>(null);
+  /** The path of the folded folder the list stops on instead of a note, null on a note. */
+  let selectedFolder = $state<string | null>(null);
   /** The selection of the other pane of notes, restored when switching back. */
   let otherId: string | null = null;
+  let otherFolder: string | null = null;
+  /** The paths of the folders folded in the sidebar, kept across launches. */
+  const folded = new SvelteSet<string>(JSON.parse(localStorage.getItem(FOLDED_KEY) ?? "[]"));
   /** The pane of notes `selectedId` belongs to, the last one shown. */
   let notesPane: Exclude<Pane, "comments"> = "notes";
   let comments = $state<Comment[]>([]);
@@ -66,6 +75,16 @@
     const paneNotes = pane === "archive" ? archived : notes;
     return folders.flatMap((f) => paneNotes.filter((n) => n.folder === f.name));
   });
+  /** What the arrows stop on, top to bottom: the notes of the unfolded folders, and the folded folders. */
+  const rows = $derived(
+    folders.flatMap((f): Row[] =>
+      folded.has(f.path)
+        ? [{ folder: f.path }]
+        : ordered.filter((n) => n.folder === f.name).map((n) => ({ note: n.id }))
+    ),
+  );
+  const rowIndex = (): number =>
+    rows.findIndex((r) => ("note" in r ? r.note === selectedId : r.folder === selectedFolder));
   const shownNotes = $derived(
     new Map<string, { note: Note; archived: boolean }>([
       ...notes.map((note) => [note.id, { note, archived: false }] as const),
@@ -109,12 +128,12 @@
 
   /** Takes a new library, keeping the selection or, when its note left, the note now in its place. */
   function apply(next: Library) {
-    const before = ordered.findIndex((n) => n.id === selectedId);
+    const before = rowIndex();
     library = next;
     comments = next.comments;
     loaded = true;
-    if (selectedId && ordered.some((n) => n.id === selectedId)) return;
-    selectedId = (ordered[Math.max(0, Math.min(before, ordered.length - 1))] ?? null)?.id ?? null;
+    if (rowIndex() >= 0) return;
+    selectRow(rows[Math.max(0, Math.min(before, rows.length - 1))] ?? null);
   }
 
   /** What the icon in the top right corner shows: the folders being read, just read, or failing. */
@@ -156,6 +175,7 @@
   // Reading ends when another note shows, whatever changed the selection.
   $effect(() => {
     void selectedId;
+    void selectedFolder;
     void selectedCommentId;
     reading = false;
   });
@@ -171,17 +191,52 @@
     view?.stopReading();
   }
 
+  /** Selects a note, unfolding its folder. */
   function select(id: string | null, line: number | null = null) {
     stopReading();
     focusLine = line;
     selectedId = id;
+    selectedFolder = null;
+    const folder = folders.find((f) => f.name === ordered.find((n) => n.id === id)?.folder);
+    if (folder) folded.delete(folder.path);
   }
+
+  /** Stops the list on a folder, which shows no note. */
+  function selectFolder(path: string) {
+    stopReading();
+    selectedId = null;
+    selectedFolder = path;
+  }
+
+  function selectRow(row: Row | null) {
+    if (row && "folder" in row) selectFolder(row.folder);
+    else select(row?.note ?? null);
+  }
+
+  /** Folds a folder (`unfold` false) or unfolds it, moving the selection onto it or into it. */
+  function fold(path: string, unfold: boolean) {
+    const name = folders.find((f) => f.path === path)?.name;
+    const first = ordered.find((n) => n.folder === name);
+    if (unfold) {
+      folded.delete(path);
+      if (selectedFolder === path && first) select(first.id);
+    } else {
+      folded.add(path);
+      if (selected?.folder === name) selectFolder(path);
+    }
+  }
+
+  // Kept on every change, for the next launch.
+  $effect(() => localStorage.setItem(FOLDED_KEY, JSON.stringify([...folded])));
 
   function showPane(next: Pane) {
     if (next === pane) return;
     stopReading();
     if (next !== "comments") {
-      if (next !== notesPane) [selectedId, otherId] = [otherId, selectedId];
+      if (next !== notesPane) {
+        [selectedId, otherId] = [otherId, selectedId];
+        [selectedFolder, otherFolder] = [otherFolder, selectedFolder];
+      }
       notesPane = next;
     }
     pane = next;
@@ -189,7 +244,7 @@
       if (!commentItems.some((i) => i.comment.id === selectedCommentId)) {
         selectedCommentId = commentItems[0]?.comment.id ?? null;
       }
-    } else if (!ordered.some((n) => n.id === selectedId)) selectedId = ordered[0]?.id ?? null;
+    } else if (rowIndex() < 0) selectRow(rows[0] ?? null);
   }
 
   function selectComment(id: string | null) {
@@ -273,13 +328,14 @@
     if (comment) resolveComment(comment);
   }
 
-  /** Jumps to the first note of the next (or previous) folder holding any. */
+  /** Jumps to the first note of the next (or previous) folder holding any, or onto it when folded. */
   function moveFolder(delta: 1 | -1) {
     const withNotes = folders.filter((f) => ordered.some((n) => n.folder === f.name));
     if (!withNotes.length) return;
-    const current = withNotes.findIndex((f) => f.name === selected?.folder);
-    const target = withNotes[(current + delta + withNotes.length) % withNotes.length];
-    select(ordered.find((n) => n.folder === target?.name)?.id ?? null);
+    const current = withNotes.findIndex((f) => f.name === selected?.folder || f.path === selectedFolder);
+    const target = withNotes[(current + delta + withNotes.length) % withNotes.length]!;
+    if (folded.has(target.path)) selectFolder(target.path);
+    else select(ordered.find((n) => n.folder === target.name)?.id ?? null);
   }
 
   function openNote(id: string): boolean {
@@ -324,11 +380,11 @@
    * before it happens.
    */
   function trash(note: Note) {
-    const before = ordered.findIndex((n) => n.id === note.id);
+    const before = rows.findIndex((r) => "note" in r && r.note === note.id);
     show(`Moved “${note.title}” to the Trash`, false, () => cancelTrash(note));
     trashing.add(note.id);
     pendingTrash = { note, timer: setTimeout(commitTrash, UNDO_MS) };
-    if (selectedId === note.id) select(ordered[Math.min(before, ordered.length - 1)]?.id ?? null);
+    if (selectedId === note.id) selectRow(rows[Math.min(before, rows.length - 1)] ?? null);
   }
 
   function cancelTrash(note: Note) {
@@ -417,13 +473,29 @@
     // A dialog's Escape has closed it by the time this runs, or will just after.
     if (overlay || event.defaultPrevented || event.ctrlKey || event.altKey || target.closest("input, textarea")) return;
 
-    const ids = pane === "comments" ? commentItems.map((i) => i.comment.id) : ordered.map((n) => n.id);
-    const at = ids.indexOf((pane === "comments" ? selectedCommentId : selectedId) ?? "");
-    const i = reading ? null : listStep(event, at, ids.length);
-    if (reading ? view?.step(event) : i !== null) {
-      event.preventDefault();
-      if (i !== null) (pane === "comments" ? selectComment : select)(ids[i] ?? null);
-      return;
+    if (pane === "comments") {
+      const ids = commentItems.map((i) => i.comment.id);
+      const i = reading ? null : listStep(event, ids.indexOf(selectedCommentId ?? ""), ids.length);
+      if (reading ? view?.step(event) : i !== null) {
+        event.preventDefault();
+        if (i !== null) selectComment(ids[i] ?? null);
+        return;
+      }
+    } else if (reading) {
+      if (view?.step(event)) {
+        event.preventDefault();
+        return;
+      }
+    } else {
+      const i = listStep(event, rowIndex(), rows.length);
+      const unfold = foldStep(event);
+      const folder = selectedFolder ?? folders.find((f) => f.name === selected?.folder)?.path;
+      if (i !== null || (unfold !== null && folder)) {
+        event.preventDefault();
+        if (i !== null) selectRow(rows[i] ?? null);
+        else fold(folder!, unfold!);
+        return;
+      }
     }
 
     // One key per action: ⌘ is spelt out, ⇧ only in the character it gives (`?`, `A`), or in Tab and space.
@@ -465,8 +537,11 @@
     notes={ordered}
     counts={{ notes: notes.length, archive: archived.length, comments: comments.length }}
     {selectedId}
+    {selectedFolder}
+    {folded}
     active={!reading}
     onSelect={(id) => select(id)}
+    onFold={(path) => fold(path, folded.has(path))}
     onPane={showPane}
     onPalette={openPalette}
   >
@@ -500,7 +575,10 @@
     />
   {:else if loaded}
     <div class="blank" data-tauri-drag-region>
-      {#if pane === "comments"}
+      {#if pane !== "comments" && selectedFolder}
+        <h1>{folders.find((f) => f.path === selectedFolder)?.name} is folded</h1>
+        <p><kbd>→</kbd> unfolds it, <kbd>←</kbd> on a note folds its folder.</p>
+      {:else if pane === "comments"}
         <h1>{comments.length ? "No comment selected" : "No comment yet"}</h1>
         <p>
           Select text in a note, or read it with <kbd>↵</kbd>, then press <kbd>c</kbd>. Comments stay beside the note,
